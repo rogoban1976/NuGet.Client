@@ -100,7 +100,7 @@ namespace NuGet.Commands
             {
                 packageSources
                     = Source
-                        .Select(s => Common.PackageSourceProviderExtensions.ResolveSource(configurationSources, s))
+                        .Select(s => PackageSourceProviderExtensions.ResolveSource(configurationSources, CurrentDirectory, s))
                         .ToList();
             }
             else

@@ -33,6 +33,7 @@ namespace NuGet.Commands.Test
                 await PushRunner.Run(
                     Settings.LoadDefaultSettings(null, null, null),
                     new TestPackageSourceProvider(packageSources),
+                    string.Empty, // no current directory
                     packageInfo.FullName,
                     packagePushDest.FullName,
                     null, // api key

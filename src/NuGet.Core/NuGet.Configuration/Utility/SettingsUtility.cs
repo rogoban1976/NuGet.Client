@@ -197,5 +197,34 @@ namespace NuGet.Configuration
 
             return source;
         }
+
+        /// <summary>
+        /// Converts "resolvePath" to an absolute file path, relative to "rootDirectory".
+        /// </summary>
+        public static string ResolvePath(string rootDirectory, string resolvePath)
+        {
+            if (string.IsNullOrEmpty(rootDirectory))
+            {
+                return resolvePath;
+            }
+
+            // Three cases for when Path.IsRooted(value) is true:
+            // 1- C:\folder\file
+            // 2- \\share\folder\file
+            // 3- \folder\file
+            // In the first two cases, we want to honor the fully qualified path
+            // In the last case, we want to return X:\folder\file with X: drive where config file is located.
+            // However, Path.Combine(path1, path2) always returns path2 when Path.IsRooted(path2) == true (which is current case)
+            string root = Path.GetPathRoot(resolvePath);
+
+            // this corresponds to 3rd case
+            if (root != null && root.Length == 1 &&
+                (root[0] == Path.DirectorySeparatorChar || resolvePath[0] == Path.AltDirectorySeparatorChar))
+            {
+                return Path.Combine(Path.GetPathRoot(rootDirectory), resolvePath.Substring(1));
+            }
+
+            return Path.Combine(rootDirectory, resolvePath);
+        }
     }
 }

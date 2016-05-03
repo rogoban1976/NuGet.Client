@@ -1,5 +1,5 @@
 ﻿using System;
-using NuGet.Common;
+using NuGet.Commands;
 using NuGet.Configuration;
 
 namespace NuGet.CommandLine
@@ -38,7 +38,7 @@ namespace NuGet.CommandLine
             }
             else
             {
-                source = SourceProvider.ResolveAndValidateSource(Source);
+                source = SourceProvider.ResolveAndValidateSource(CurrentDirectory, Source);
             }
 
             SettingsUtility.SetEncryptedValue(Settings, CommandLineUtility.ApiKeysSectionName, source, apiKey);

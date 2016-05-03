@@ -14,6 +14,7 @@ namespace NuGet.Commands
         public static async Task Run(
             ISettings settings,
             IPackageSourceProvider sourceProvider,
+            string currentDirectory,
             string packageId,
             string packageVersion,
             string source,
@@ -22,7 +23,7 @@ namespace NuGet.Commands
             Func<string, bool> confirmFunc,
             ILogger logger)
         {
-            source = CommandRunnerUtility.ResolveSource(sourceProvider, source);
+            source = CommandRunnerUtility.ResolveSource(sourceProvider, currentDirectory, source);
 
             PackageUpdateResource packageUpdateResource = await CommandRunnerUtility.GetPackageUpdateResource(sourceProvider, source);
 

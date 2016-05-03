@@ -823,32 +823,12 @@ namespace NuGet.Configuration
 
             // Return the optional value which if not there will be null;
             var value = XElementUtility.GetOptionalAttributeValue(element, ConfigurationConstants.ValueAttribute);
-            if (!isPath
-                || String.IsNullOrEmpty(value))
+            if (!isPath || String.IsNullOrEmpty(value))
             {
                 return value;
             }
-            return Path.Combine(Root, ResolvePath(Path.GetDirectoryName(ConfigFilePath), value));
-        }
 
-        private static string ResolvePath(string configDirectory, string value)
-        {
-            // Three cases for when Path.IsRooted(value) is true:
-            // 1- C:\folder\file
-            // 2- \\share\folder\file
-            // 3- \folder\file
-            // In the first two cases, we want to honor the fully qualified path
-            // In the last case, we want to return X:\folder\file with X: drive where config file is located.
-            // However, Path.Combine(path1, path2) always returns path2 when Path.IsRooted(path2) == true (which is current case)
-            var root = Path.GetPathRoot(value);
-            // this corresponds to 3rd case
-            if (root != null
-                && root.Length == 1
-                && (root[0] == Path.DirectorySeparatorChar || value[0] == Path.AltDirectorySeparatorChar))
-            {
-                return Path.Combine(Path.GetPathRoot(configDirectory), value.Substring(1));
-            }
-            return Path.Combine(configDirectory, value);
+            return Path.Combine(Root, SettingsUtility.ResolvePath(Path.GetDirectoryName(ConfigFilePath), value));
         }
 
         private void PopulateValues(string section, List<SettingValue> current, bool isPath)
@@ -912,7 +892,7 @@ namespace NuGet.Configuration
             if (isPath && Uri.TryCreate(value, UriKind.Relative, out uri))
             {
                 var configDirectory = Path.GetDirectoryName(ConfigFilePath);
-                value = Path.Combine(Root, Path.Combine(configDirectory, value));
+                value = Path.Combine(Root, SettingsUtility.ResolvePath(configDirectory, value));
             }
 
             var settingValue = new SettingValue(keyAttribute.Value,

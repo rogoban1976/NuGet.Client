@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Threading.Tasks;
 using NuGet.Configuration;
 using NuGet.Protocol.Core.Types;
@@ -11,7 +12,7 @@ namespace NuGet.Commands
     /// </summary>
     internal static class CommandRunnerUtility
     {
-        public static string ResolveSource(IPackageSourceProvider sourceProvider, string source)
+        public static string ResolveSource(IPackageSourceProvider sourceProvider, string currentDirectory, string source)
         {
             if (string.IsNullOrEmpty(source))
             {
@@ -20,7 +21,7 @@ namespace NuGet.Commands
 
             if (!string.IsNullOrEmpty(source))
             {
-                source = sourceProvider.ResolveAndValidateSource(source);
+                source = sourceProvider.ResolveAndValidateSource(currentDirectory, source);
             }
 
             if (string.IsNullOrEmpty(source))

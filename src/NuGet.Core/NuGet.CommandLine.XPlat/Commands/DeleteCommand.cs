@@ -59,6 +59,7 @@ namespace NuGet.CommandLine.XPlat
                     await DeleteRunner.Run(
                         sourceProvider.Settings,
                         sourceProvider,
+                        Directory.GetCurrentDirectory(),
                         packageId,
                         packageVersion,
                         sourcePath,

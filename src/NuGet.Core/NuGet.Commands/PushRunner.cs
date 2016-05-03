@@ -14,6 +14,7 @@ namespace NuGet.Commands
         public static async Task Run(
             ISettings settings,
             IPackageSourceProvider sourceProvider,
+            string currentDirectory,
             string packagePath,
             string source,
             string apiKey,
@@ -22,7 +23,7 @@ namespace NuGet.Commands
             bool noSymbols,
             ILogger logger)
         {
-            source = CommandRunnerUtility.ResolveSource(sourceProvider, source);
+            source = CommandRunnerUtility.ResolveSource(sourceProvider, currentDirectory, source);
 
             if (timeoutSeconds == 0)
             {

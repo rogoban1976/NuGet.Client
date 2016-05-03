@@ -37,6 +37,7 @@ namespace NuGet.CommandLine
             await DeleteRunner.Run(
                 Settings,
                 SourceProvider,
+                CurrentDirectory,
                 packageId,
                 packageVersion,
                 Source,

@@ -77,6 +77,7 @@ namespace NuGet.CommandLine.XPlat
                         await PushRunner.Run(
                             sourceProvider.Settings,
                             sourceProvider,
+                            Directory.GetCurrentDirectory(),
                             packagePath,
                             sourcePath,
                             apiKeyValue,

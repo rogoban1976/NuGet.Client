@@ -136,7 +136,7 @@ namespace NuGet.CommandLine
 
             foreach (var source in Source)
             {
-                packageSources.Add(Common.PackageSourceProviderExtensions.ResolveSource(availableSources, source));
+                packageSources.Add(NuGet.Commands.PackageSourceProviderExtensions.ResolveSource(availableSources, CurrentDirectory, source));
             }
 
             if (Source.Count == 0)
@@ -146,7 +146,7 @@ namespace NuGet.CommandLine
 
             foreach (var source in FallbackSource)
             {
-                packageSources.Add(Common.PackageSourceProviderExtensions.ResolveSource(packageSources, source));
+                packageSources.Add(NuGet.Commands.PackageSourceProviderExtensions.ResolveSource(packageSources, CurrentDirectory, source));
             }
 
             return packageSources;
