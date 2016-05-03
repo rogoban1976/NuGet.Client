@@ -1,0 +1,45 @@
+﻿{
+  "version": "3.5.0-*",
+  "dependencies": {
+    "NuGet.Repositories": {
+      "target": "project"
+    },
+    "xunit": "2.1.0"
+  },
+  "frameworks": {
+    "netcoreapp1.0": {
+      "imports": [
+        "dotnet5.6",
+        "dnxcore50",
+        "portable-net45+win8"
+      ],
+      "dependencies": {
+        "dotnet-test-xunit": "1.0.0-dev-140469-38",
+        "Microsoft.NETCore.App": {
+          "type": "platform",
+          "version": "1.0.0-rc2-3002339"
+        }
+      },
+      "compilationOptions": {
+        "define": [
+          "IS_CORECLR"
+        ]
+      }
+    },
+    "net46": {
+      "frameworkAssemblies": {
+        "Microsoft.CSharp": "",
+        "System": "",
+        "System.Core": "",
+        "System.Runtime": "",
+        "System.Threading.Tasks": ""
+      },
+      "compilationOptions": {
+        "define": [
+          "IS_DESKTOP"
+        ]
+      }
+    }
+  },
+  "testRunner": "xunit"
+}

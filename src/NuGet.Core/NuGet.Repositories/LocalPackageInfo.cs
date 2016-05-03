@@ -3,6 +3,7 @@
 
 using System.IO;
 using NuGet.Packaging;
+using NuGet.Packaging.Core;
 using NuGet.Versioning;
 
 namespace NuGet.Repositories
@@ -55,8 +56,29 @@ namespace NuGet.Repositories
                         // Scan the folder for the nuspec
                         var folderReader = new PackageFolderReader(ExpandedPath);
 
-                        // This will throw if the nuspec is not found
-                        _nuspec = new NuspecReader(folderReader.GetNuspec());
+                        try
+                        {
+                            // This will throw if the nuspec is not found
+                            _nuspec = new NuspecReader(folderReader.GetNuspec());
+                        }
+                        catch (PackagingException ex)
+                        {
+                            if (ex.Message != Strings.MissingNuspec)
+                            {
+                                // It's fine if the file is missing, we'll look inside the nupkg next
+                                throw;
+                            }
+                        }
+
+                        if (_nuspec == null)
+                        {
+                            // Look in the nupkg for the nuspec
+                            using (var packageReader = new PackageArchiveReader(ZipPath))
+                            using (var stream = packageReader.GetNuspec())
+                            {
+                                _nuspec = new NuspecReader(stream);
+                            }
+                        }
                     }
                 }
 
