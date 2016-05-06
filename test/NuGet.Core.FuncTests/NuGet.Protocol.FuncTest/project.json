@@ -30,6 +30,11 @@
       }
     },
     "net46": {
+      "dependencies": {
+        "NuGet.PackageManagement": {
+          "target": "project"
+        }
+      },
       "frameworkAssemblies": {
         "Microsoft.CSharp": "",
         "System": "",
