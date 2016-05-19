@@ -36,6 +36,17 @@ namespace NuGet.Protocol.Core.v3.LocalRepositories
             return Task.FromResult(infos.Select(p => p.Reader.GetVersion()));
         }
 
+        public override Task<PackageIdentity> GetOriginalIdentityAsync(string id, NuGetVersion version, CancellationToken token)
+        {
+            var info = GetPackageInfo(id, version);
+            if (info != null)
+            {
+                return Task.FromResult(info.Identity);
+            }
+
+            return Task.FromResult<PackageIdentity>(null);
+        }
+
         public override Task<Stream> GetNupkgStreamAsync(string id, NuGetVersion version, CancellationToken token)
         {
             var info = GetPackageInfo(id, version);
@@ -105,10 +116,15 @@ namespace NuGet.Protocol.Core.v3.LocalRepositories
 
                         throw new FatalProtocolException(message, ex);
                     }
-
+                    
                     if (string.Equals(reader.GetId(), id, StringComparison.OrdinalIgnoreCase))
                     {
-                        result.Add(new CachedPackageInfo { Path = nupkgInfo.FullName, Reader = reader });
+                        result.Add(new CachedPackageInfo
+                        {
+                            Path = nupkgInfo.FullName,
+                            Identity = reader.GetIdentity(),
+                            Reader = reader
+                        });
                     }
                 }
             }

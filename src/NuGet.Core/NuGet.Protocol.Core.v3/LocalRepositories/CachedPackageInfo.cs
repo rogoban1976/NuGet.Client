@@ -3,6 +3,7 @@
 
 using System;
 using NuGet.Packaging;
+using NuGet.Packaging.Core;
 
 namespace NuGet.Protocol.Core.v3.LocalRepositories
 {
@@ -11,6 +12,8 @@ namespace NuGet.Protocol.Core.v3.LocalRepositories
         public string Path { get; set; }
 
         public DateTime LastWriteTimeUtc { get; set; }
+
+        public PackageIdentity Identity { get; set; }
 
         public NuspecReader Reader { get; set; }
     }
