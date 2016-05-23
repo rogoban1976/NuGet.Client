@@ -24,7 +24,6 @@ using NuGet.ProjectManagement;
 using VSLangProj;
 using VSLangProj80;
 using VsWebSite;
-using Constants = NuGet.ProjectManagement.Constants;
 using EnvDTEProject = EnvDTE.Project;
 using EnvDTEProjectItem = EnvDTE.ProjectItem;
 using EnvDTEProjectItems = EnvDTE.ProjectItems;
