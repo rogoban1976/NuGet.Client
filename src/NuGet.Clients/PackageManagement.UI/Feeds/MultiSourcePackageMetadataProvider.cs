@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Packaging.Core;
+using NuGet.ProjectManagement;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 
@@ -22,22 +23,36 @@ namespace NuGet.PackageManagement.UI
         private readonly SourceRepository _localRepository;
         private readonly SourceRepository _globalLocalRepository;
         private readonly Common.ILogger _logger;
+        private readonly NuGetProject[] _projects;
+        private readonly bool _isSolution;
+        private IEnumerable<Packaging.PackageReference> _packageReferences;
 
         public MultiSourcePackageMetadataProvider(
             IEnumerable<SourceRepository> sourceRepositories,
             SourceRepository optionalLocalRepository,
             SourceRepository optionalGlobalLocalRepository,
+            NuGetProject[] projects,
+            bool isSolution,
             Common.ILogger logger)
         {
             if (sourceRepositories == null)
             {
                 throw new ArgumentNullException(nameof(sourceRepositories));
             }
+
+            if (projects == null)
+            {
+                throw new ArgumentNullException(nameof(projects));
+            }
             _sourceRepositories = sourceRepositories;
 
             _localRepository = optionalLocalRepository;
 
             _globalLocalRepository = optionalGlobalLocalRepository;
+
+            _projects = projects;
+
+            _isSolution = isSolution;
 
             if (logger == null)
             {
@@ -75,8 +90,34 @@ namespace NuGet.PackageManagement.UI
         public async Task<IPackageSearchMetadata> GetLatestPackageMetadataAsync(PackageIdentity identity,
             bool includePrerelease, CancellationToken cancellationToken)
         {
+            VersionRange allowedVersions = null;
+
+            // at this time, allowed version range should be applied at project level. 
+            // For solution level, we will apply allowed version range for all the selected projects in detail control model
+            if (!_isSolution)
+            {
+                if (_packageReferences == null)
+                {
+                    // get all package references for all the projects and cache locally
+                    var packageReferencesTasks = _projects.Select(project => project.GetInstalledPackagesAsync(cancellationToken));
+                    _packageReferences = (await Task.WhenAll(packageReferencesTasks)).SelectMany(p => p).Where(p => p != null);
+                }
+
+                // filter package references for current package identity
+                var matchedPackageReferences = _packageReferences.Where(r => StringComparer.OrdinalIgnoreCase.Equals(r.PackageIdentity.Id, identity.Id));
+
+                // Allowed version range for current package across all selected projects
+                var allowedVersionsRange = matchedPackageReferences.Select(r => r.AllowedVersions).Where(v => v != null);
+
+                if (allowedVersionsRange.Any())
+                {
+                    // Find a common range which satisfies all the version ranges across projects
+                    allowedVersions = VersionRange.FindCommonRange(allowedVersionsRange);
+                }
+            }
+
             var tasks = _sourceRepositories
-                .Select(r => r.GetLatestPackageMetadataAsync(identity.Id, includePrerelease, cancellationToken))
+                .Select(r => r.GetLatestPackageMetadataAsync(identity.Id, includePrerelease, cancellationToken, allowedVersions))
                 .ToArray();
 
             var ignored = tasks
@@ -169,5 +210,6 @@ namespace NuGet.PackageManagement.UI
                 _logger.LogError(ex.ToString());
             }
         }
+
     }
 }

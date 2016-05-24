@@ -662,6 +662,8 @@ namespace NuGet.PackageManagement.UI
                 context.SourceRepositories,
                 context.PackageManager?.PackagesFolderSourceRepository,
                 context.PackageManager?.GlobalPackagesFolderSourceRepository,
+                context.Projects,
+                context.IsSolution,
                 logger);
         }
 

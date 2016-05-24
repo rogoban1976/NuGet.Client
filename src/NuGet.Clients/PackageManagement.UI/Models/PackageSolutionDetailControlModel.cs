@@ -140,8 +140,17 @@ namespace NuGet.PackageManagement.UI
         {
             _versions = new List<DisplayVersion>();
             var allVersions = _allPackageVersions.OrderByDescending(v => v);
-            var latestPrerelease = allVersions.FirstOrDefault(v => v.IsPrerelease);
-            var latestStableVersion = allVersions.FirstOrDefault(v => !v.IsPrerelease);
+
+            // null, if no version constraint defined in package.config
+            var allowedVersions = GetAllowedVersions();
+            var allVersionsAllowed = allowedVersions != null ? allVersions.Where(v => allowedVersions.Satisfies(v)) : allVersions;
+
+            // null, if all versions are allowed to install or update
+            var blockedVersions = allVersions.Where(v => !allVersionsAllowed.Any(allowed => allowed.Version.Equals(v.Version)));
+
+            // get latest prerelease or stable based on allowed versions
+            var latestPrerelease = allVersionsAllowed.FirstOrDefault(v => v.IsPrerelease);
+            var latestStableVersion = allVersionsAllowed.FirstOrDefault(v => !v.IsPrerelease);
 
             if (latestPrerelease != null
                 && (latestStableVersion == null || latestPrerelease > latestStableVersion))
@@ -160,13 +169,31 @@ namespace NuGet.PackageManagement.UI
                 _versions.Add(null);
             }
 
-            foreach (var version in allVersions)
+            // first add all the available versions to be updated
+            foreach (var version in allVersionsAllowed)
+            {
+                _versions.Add(new DisplayVersion(version, string.Empty));
+            }
+
+            // add a separator
+            if (blockedVersions.Any())
+            {
+                if (_versions.Count > 0)
+                {
+                    _versions.Add(null);
+                }
+                var emptyVersion = new NuGetVersion(new Version(0, 0));
+                _versions.Add(new DisplayVersion(version: emptyVersion, additionalInfo: Resources.Version_Blocked, isValidVersion: false));
+            }
+
+            // add versions which are blocked because of version constraint in package.config
+            foreach (var version in blockedVersions)
             {
                 _versions.Add(new DisplayVersion(version, string.Empty));
             }
 
             SelectVersion();
-            OnPropertyChanged("Versions");
+            OnPropertyChanged(nameof(Versions));
         }
 
         // the count of different installed versions
@@ -317,6 +344,9 @@ namespace NuGet.PackageManagement.UI
         {
             UpdateSelectCheckBoxState();
             UpdateCanInstallAndCanUninstall();
+
+            // update versions list everytime selected projects change
+            CreateVersions();
         }
 
         private void UpdateSelectCheckBoxState()
@@ -348,6 +378,20 @@ namespace NuGet.PackageManagement.UI
                     VersionComparer.Default.Compare(SelectedVersion.Version, project.InstalledVersion) != 0);
         }
 
+        private VersionRange GetAllowedVersions()
+        {
+            // selected list of projects
+            var selectedProjectsName = Projects.Where(p => p.IsSelected).Select(p => p.NuGetProject.GetMetadata<string>(NuGetProjectMetadataKeys.Name));
+
+            // allowed version ranges for selected list of projects
+            var allowedVersionsRange = _projectVersionRangeDict.Where(kvp => selectedProjectsName.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
+                .Select(kvp => kvp.Value);
+            allowedVersionsRange = allowedVersionsRange.Where(v => v != null);
+
+            // if version constraints exist then merge all the ranges and return common range which satisfies all
+            return allowedVersionsRange.Any() ? VersionRange.FindCommonRange(allowedVersionsRange) : null;
+        }
+
         public void SelectAllProjects()
         {
             if (_updatingSelectCheckBoxState)
@@ -361,6 +405,9 @@ namespace NuGet.PackageManagement.UI
             }
 
             UpdateCanInstallAndCanUninstall();
+
+            // update versions list everytime selected projects change
+            CreateVersions();
         }
 
         public void UnselectAllProjects()
@@ -376,6 +423,9 @@ namespace NuGet.PackageManagement.UI
             }
 
             UpdateCanInstallAndCanUninstall();
+
+            // update versions list everytime selected projects change
+            CreateVersions();
         }
 
         private static bool IsInstalled(NuGetProject project, string id)
