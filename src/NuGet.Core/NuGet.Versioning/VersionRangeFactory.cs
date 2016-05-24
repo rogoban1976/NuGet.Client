@@ -376,6 +376,146 @@ namespace NuGet.Versioning
         }
 
         /// <summary>
+        /// Returns the greatest common range that satisfies all given ranges.
+        /// </summary>
+        public static VersionRange FindCommonRange(IEnumerable<VersionRange> ranges)
+        {
+            return FindCommonRange(ranges, VersionComparer.Default);
+        }
+
+        /// <summary>
+        /// Returns the greatest common range that satisfies all given ranges.
+        /// </summary>
+        public static VersionRange FindCommonRange(IEnumerable<VersionRange> ranges, IVersionComparer comparer)
+        {
+            if (ranges == null)
+            {
+                throw new ArgumentNullException(nameof(ranges));
+            }
+
+            if (comparer == null)
+            {
+                throw new ArgumentNullException(nameof(comparer));
+            }
+
+            // Default to None for empty lists
+            var result = None;
+
+            // Remove zero width ranges. Ex: (1.0.0, 1.0.0)
+            // This includes VersionRange.None and any other ranges that satisfy zero versions
+            ranges = ranges.Where(range => HasValidRange(range));
+
+            if (ranges.Any())
+            {
+                var rangeComparer = new VersionRangeComparer(comparer);
+
+                // start with the first range in the list
+                var first = ranges.First();
+
+                var lowest = first.MinVersion;
+                var highest = first.MaxVersion;
+
+                // To keep things consistent set min/max inclusive to false when there is no boundary
+                // It is possible to denote an inclusive range with no bounds, but it has no useful meaning for combine
+                var includeLowest = first.IsMinInclusive && first.HasLowerBound;
+                var includeHighest = first.IsMaxInclusive && first.HasUpperBound;
+
+                // expand the range to inclue all other ranges
+                foreach (var range in ranges.Skip(1))
+                {
+                    // only executing if range has lower bound version
+                    if (range.HasLowerBound)
+                    {
+                        if (lowest != null)
+                        {
+                            var lowerCompare = comparer.Compare(range.MinVersion, lowest);
+
+                            if (lowerCompare > 0)
+                            {
+                                // A new lowest was found
+                                lowest = range.MinVersion;
+                                includeLowest = range.IsMinInclusive;                                
+                            }
+                            else if (lowerCompare == 0)
+                            {
+                                // The lower ends are identical, update the inclusiveness
+                                includeLowest &= range.IsMinInclusive;
+                            }
+                            // lowerCompare < 0 out of the current range, this is a no-op
+
+                            // compare new lowest with existing highest, if it's going out of tha range
+                            if (highest != null)
+                            {
+                                lowerCompare = comparer.Compare(highest, lowest);
+                                if (lowerCompare < 0)
+                                {
+                                    // there could be no common range which satisfy all ranges
+                                    return None;
+                                }
+                                else if (lowerCompare == 0)
+                                {
+                                    includeLowest &= includeHighest;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // this is the first lowest bound version found
+                            lowest = range.MinVersion;
+                            includeLowest = range.IsMinInclusive;
+                        }
+                    }
+
+                    if (range.HasUpperBound)
+                    {
+                        if (highest != null)
+                        {
+                            var higherCompare = comparer.Compare(range.MaxVersion, highest);
+
+                            if (higherCompare < 0)
+                            {
+                                // A new highest was found
+                                highest = range.MaxVersion;
+                                includeHighest = range.IsMaxInclusive;
+                            }
+                            else if (higherCompare == 0)
+                            {
+                                // The higher ends are identical, update the inclusiveness
+                                includeHighest &= range.IsMaxInclusive;
+                            }
+                            // higherCompare > 0 out of the current range, this is a no-op
+                        }
+                        else
+                        {
+                            // this is the first highest bound version found
+                            highest = range.MaxVersion;
+                            includeHighest = range.IsMaxInclusive;
+                        }
+                    }
+                }
+
+                // at last just check the final lowest n highest versions
+                if(lowest != null && highest != null)
+                {
+                    var compare = comparer.Compare(lowest, highest);
+                    if(compare > 0)
+                    {
+                        return None;
+                    }
+                    else if(compare == 0)
+                    {
+                        includeHighest = includeLowest &= includeHighest;
+                    }
+                }
+
+                // Create the new range using the maximums found
+                result = new VersionRange(lowest, includeLowest, highest, includeHighest);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Verify the range has an actual width.
         /// Ex: no version can satisfy (3.0.0, 3.0.0)
         /// </summary>

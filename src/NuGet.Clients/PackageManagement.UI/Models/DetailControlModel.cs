@@ -34,6 +34,8 @@ namespace NuGet.PackageManagement.UI
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields")]
         protected ItemFilter _filter;
 
+        protected Dictionary<string, VersionRange> _projectVersionRangeDict;
+
         private Dictionary<NuGetVersion, DetailedPackageMetadata> _metadataDict;
 
         protected DetailControlModel(IEnumerable<NuGetProject> nugetProjects)
@@ -74,6 +76,17 @@ namespace NuGet.PackageManagement.UI
             var versions = await searchResultPackage.GetVersionsAsync();
 
             _allPackageVersions = versions.Select(v => v.Version).ToList();
+
+            _projectVersionRangeDict = new Dictionary<string, VersionRange>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var project in _nugetProjects)
+            {
+                // cache allowed version range for each nuget project for current selected package
+                var packageReference = (await project.GetInstalledPackagesAsync(CancellationToken.None))
+                    .FirstOrDefault(r => StringComparer.OrdinalIgnoreCase.Equals(r.PackageIdentity.Id, searchResultPackage.Id));
+
+                _projectVersionRangeDict.Add(project.GetMetadata<string>(NuGetProjectMetadataKeys.Name), packageReference?.AllowedVersions);
+            }
 
             CreateVersions();
             OnCurrentPackageChanged();
@@ -249,18 +262,8 @@ namespace NuGet.PackageManagement.UI
                 return;
             }
 
-            DisplayVersion versionToSelect = _versions
-                .Where(v => v != null && v.Version.Equals(_searchResultPackage.Version))
-                .FirstOrDefault();
-            if (versionToSelect == null)
-            {
-                versionToSelect = _versions[0];
-            }
-
-            if (versionToSelect != null)
-            {
-                SelectedVersion = versionToSelect;
-            }
+            // it should always select the top version from versions list to install or update
+            SelectedVersion = _versions[0];
         }
 
         internal async Task LoadPackageMetadaAsync(IPackageMetadataProvider metadataProvider, CancellationToken token)
