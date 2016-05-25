@@ -81,6 +81,9 @@
     <Compile Include="Resources\Resources.xaml.cs">
       <DependentUpon>Resources.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Xamls\ConvertPackagesConfigIntroWindow.xaml.cs">
+      <DependentUpon>ConvertPackagesConfigIntroWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Xamls\RestartRequestBar.xaml.cs">
       <DependentUpon>RestartRequestBar.xaml</DependentUpon>
     </Compile>
@@ -269,6 +272,10 @@
     <Page Include="Themes\generic.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Xamls\ConvertPackagesConfigIntroWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
     </Page>
     <Page Include="Xamls\RestartRequestBar.xaml">
       <Generator>MSBuild:Compile</Generator>

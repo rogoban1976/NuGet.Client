@@ -228,6 +228,12 @@
   <data name="Button_IDecline" xml:space="preserve">
     <value>I Decline</value>
   </data>
+  <data name="Text_ConvertPackagesConfigIntroText1" xml:space="preserve">
+    <value>This tool will switch your project from using packages.config to using project.json to maintain your NuGet packages.</value>
+  </data>
+  <data name="Text_ConvertPackagesConfigIntroText2" xml:space="preserve">
+    <value>By default, dependencies will be collapsed (packages that are included as dependencies of other packages won't be included in the resulting project.json file). Deselect this option to include all packages.</value>
+  </data>
   <data name="Text_LicenseHeaderText" xml:space="preserve">
     <value>The following package(s) require that you accept their license terms before installing.</value>
   </data>
@@ -324,6 +330,9 @@
   <data name="WindowTitle_LicenseAcceptance" xml:space="preserve">
     <value>License Acceptance</value>
   </data>
+  <data name="WindowTitle_ConvertPackagesConfigIntro" xml:space="preserve">
+    <value>Convert</value>
+  </data>
   <data name="Label_PackagePrerelease" xml:space="preserve">
     <value>Prerelease</value>
   </data>
@@ -416,6 +425,12 @@ Packages installed into Website projects will not be restored during build. Cons
   </data>
   <data name="DoNotShowThisAgain" xml:space="preserve">
     <value>Do not show this again</value>
+  </data>
+  <data name="Radio_CollapseDepencies" xml:space="preserve">
+    <value>Collapse depencies</value>
+  </data>
+  <data name="Radio_KeepAllPackages" xml:space="preserve">
+    <value>Include all packages</value>
   </data>
   <data name="Action_Downgrade" xml:space="preserve">
     <value>Downgrade</value>

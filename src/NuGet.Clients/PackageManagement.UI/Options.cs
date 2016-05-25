@@ -111,6 +111,24 @@ namespace NuGet.PackageManagement.UI
             }
         }
 
+        private bool _collapseDependenciesWhenConverting = true;
+
+        public bool CollapseDependenciesWhenConverting
+        {
+            get
+            {
+                return _collapseDependenciesWhenConverting;
+            }
+            set
+            {
+                if (_collapseDependenciesWhenConverting != value)
+                {
+                    _collapseDependenciesWhenConverting = value;
+                    OnPropertyChanged(nameof(CollapseDependenciesWhenConverting));
+                }
+            }
+        }
+
         private bool _removeDependencies;
 
         public bool RemoveDependencies

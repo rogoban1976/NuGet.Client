@@ -882,6 +882,24 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Collapse depencies.
+        /// </summary>
+        public static string Radio_CollapseDepencies {
+            get {
+                return ResourceManager.GetString("Radio_CollapseDepencies", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Include all packages.
+        /// </summary>
+        public static string Radio_KeepAllPackages {
+            get {
+                return ResourceManager.GetString("Radio_KeepAllPackages", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Multiple packages failed to uninstall. Restart Visual Studio to finish the process..
         /// </summary>
         public static string RequestRestartToCompleteUninstallMultiplePackages {
@@ -941,6 +959,24 @@ namespace NuGet.PackageManagement.UI {
         public static string Text_Changes {
             get {
                 return ResourceManager.GetString("Text_Changes", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to This tool will switch your project from using packages.config to using project.json to maintain your NuGet packages..
+        /// </summary>
+        public static string Text_ConvertPackagesConfigIntroText1 {
+            get {
+                return ResourceManager.GetString("Text_ConvertPackagesConfigIntroText1", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to By default, dependencies will be collapsed (packages that are included as dependencies of other packages won&apos;t be included in the resulting project.json file). Deselect this option to include all packages..
+        /// </summary>
+        public static string Text_ConvertPackagesConfigIntroText2 {
+            get {
+                return ResourceManager.GetString("Text_ConvertPackagesConfigIntroText2", resourceCulture);
             }
         }
         
@@ -1292,6 +1328,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Version_LatestStable {
             get {
                 return ResourceManager.GetString("Version_LatestStable", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Convert.
+        /// </summary>
+        public static string WindowTitle_ConvertPackagesConfigIntro {
+            get {
+                return ResourceManager.GetString("WindowTitle_ConvertPackagesConfigIntro", resourceCulture);
             }
         }
         
