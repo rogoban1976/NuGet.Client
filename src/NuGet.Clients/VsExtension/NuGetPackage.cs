@@ -1072,8 +1072,8 @@ namespace NuGetVSExtension
 
             // Don't show command if experimental features aren't turned on
             var settings = ServiceLocator.GetInstanceSafe<ISettings>();
-            var options = new GeneralOptions(settings);
-            var areExperimentalFeaturesEnabled = options.AreExperimentalFeaturesEnabled;
+            var options = new ExperimentalFeatures(settings);
+            var areExperimentalFeaturesEnabled = options.Enabled;
 
             command.Visible = areExperimentalFeaturesEnabled && (IsPackageConfigInSupportedProjectSelected() || IsSupportedProjectWithPackagesConfigSelected());
             command.Enabled = areExperimentalFeaturesEnabled && !ConsoleStatus.IsBusy && IsSolutionExistsAndNotDebuggingAndNotBuilding() && HasActiveLoadedSupportedProject;

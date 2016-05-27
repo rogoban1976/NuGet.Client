@@ -204,6 +204,9 @@
   <data name="Label_Version" xml:space="preserve">
     <value>Version:</value>
   </data>
+  <data name="Text_ConvertPackagesConfigDescription" xml:space="preserve">
+    <value>This project uses NuGet 2.x packages.config to track dependencies. You can update it to use NuGet 3.x project.json.</value>
+  </data>
   <data name="Text_LegalDisclaimer" xml:space="preserve">
     <value>Each package is licensed to you by its owner. NuGet is not responsible for, nor does it grant any licenses to, third-party packages.</value>
   </data>
@@ -215,6 +218,9 @@
   </data>
   <data name="Button_OK" xml:space="preserve">
     <value>OK</value>
+  </data>
+  <data name="Button_Convert" xml:space="preserve">
+    <value>Convert</value>
   </data>
   <data name="Label_InstalledPackages" xml:space="preserve">
     <value>Installing:</value>

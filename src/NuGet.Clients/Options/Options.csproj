@@ -26,8 +26,8 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' Or '$(Configuration)' == 'Mono Release'">
-	<DebugType>pdbonly</DebugType>
-	<Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
@@ -56,7 +56,6 @@
     <Compile Include="GeneralOptionPage.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="GeneralOptions.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="OptionsPageBase.cs">
       <SubType>Component</SubType>

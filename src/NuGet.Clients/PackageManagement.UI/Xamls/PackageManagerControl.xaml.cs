@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,8 @@ using NuGet.Protocol.Core.Types;
 using NuGet.Resolver;
 using Resx = NuGet.PackageManagement.UI;
 using Microsoft.VisualStudio.Threading;
+using NuGet.Configuration;
+using NuGet.PackageManagement.VisualStudio;
 
 namespace NuGet.PackageManagement.UI
 {
@@ -48,6 +51,9 @@ namespace NuGet.PackageManagement.UI
         private bool _missingPackageStatus;
 
         private readonly INuGetUILogger _uiLogger;
+
+        // Initial to true so change detection logic is simple (since UI defaults to shown).
+        private bool _shouldShowConvertProject = true;
 
         public PackageManagerModel Model { get; }
 
@@ -144,6 +150,10 @@ namespace NuGet.PackageManagement.UI
 
             Model.Context.SourceProvider.PackageSourceProvider.PackageSourcesChanged += Sources_PackageSourcesChanged;
 
+            UpdateConvertProjectVisibility(nugetSettings);
+            Unloaded += PackageManagerUnloaded;
+            ExperimentalFeatures.EnabledChanged += ExperimentalFeaturesEnabledChanged;
+
             if (IsUILegalDisclaimerSuppressed())
             {
                 _legalDisclaimer.Visibility = Visibility.Collapsed;
@@ -219,6 +229,63 @@ namespace NuGet.PackageManagement.UI
             {
                 _topPanel.SelectFilter(settings.SelectedFilter);
             }
+        }
+
+        private void UpdateConvertProjectVisibility(ISettings nugetSettings)
+        {
+            UpdateConvertProjectVisibility(new ExperimentalFeatures(nugetSettings).Enabled);
+        }
+
+        private void UpdateConvertProjectVisibility(bool experimentalFeaturesEnabled)
+        {
+            var newValue = ShouldShowConvertProject(experimentalFeaturesEnabled);
+            if (newValue != _shouldShowConvertProject)
+            {
+                _shouldShowConvertProject = newValue;
+                _convertPackagesConfig.Visibility = newValue ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private bool ShouldShowConvertProject(bool experimentalFeaturesEnabled)
+        {
+            if (!experimentalFeaturesEnabled)
+            {
+                return false;
+            }
+
+            // If user has turned it off, don't show
+            if (RegistrySettingUtility.GetBooleanSetting(Constants.SuppressConvertPackagesConfigName))
+            {
+                return false;
+            }
+
+            // We don't currently support converting an entire solution
+            if (Model.IsSolution)
+            {
+                return false;
+            }
+
+            // We only support a single project
+            var projects = Model.Context.Projects.ToList();
+            if (projects.Count != 1)
+            {
+                return false;
+            }
+
+            // The project must have a packages.config file
+            var msBuildNuGetProject = projects[0] as MSBuildNuGetProject;
+            return msBuildNuGetProject != null && File.Exists(msBuildNuGetProject.PackagesConfigNuGetProject.FullPath);
+        }
+
+        private void ExperimentalFeaturesEnabledChanged(object sender, EnabledChangedEventArgs enabledChangedEventArgs)
+        {
+            UpdateConvertProjectVisibility(enabledChangedEventArgs.Enabled);
+        }
+
+        private void PackageManagerUnloaded(object sender, RoutedEventArgs e)
+        {
+            Unloaded -= PackageManagerUnloaded;
+            ExperimentalFeatures.EnabledChanged -= ExperimentalFeaturesEnabledChanged;
         }
 
         private static bool IsUILegalDisclaimerSuppressed()
@@ -996,6 +1063,11 @@ namespace NuGet.PackageManagement.UI
             SearchPackageInActivePackageSource(_windowSearchHost.SearchQuery.SearchString, useCache: false);
             RefreshAvailableUpdatesCount();
             RefreshConsolidatablePackagesCount();
+        }
+
+        private void ConvertButton_Click(object sender, RoutedEventArgs e)
+        {
+
         }
     }
 }

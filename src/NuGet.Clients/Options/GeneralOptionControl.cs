@@ -37,8 +37,8 @@ namespace NuGet.Options
                     var bindingRedirects = new BindingRedirectBehavior(_settings);
                     skipBindingRedirects.Checked = bindingRedirects.IsSkipped;
 
-                    var generalOptions = new GeneralOptions(_settings);
-                    enableExperimentalFeaturesCheckBox.Checked = generalOptions.AreExperimentalFeaturesEnabled;
+                    var generalOptions = new ExperimentalFeatures(_settings);
+                    enableExperimentalFeaturesCheckBox.Checked = generalOptions.Enabled;
                 }
                 catch(InvalidOperationException)
                 {
@@ -64,8 +64,8 @@ namespace NuGet.Options
                 var bindingRedirects = new BindingRedirectBehavior(_settings);
                 bindingRedirects.IsSkipped = skipBindingRedirects.Checked;
 
-                var generalOptions = new GeneralOptions(_settings);
-                generalOptions.AreExperimentalFeaturesEnabled = enableExperimentalFeaturesCheckBox.Checked;
+                var generalOptions = new ExperimentalFeatures(_settings);
+                generalOptions.Enabled = enableExperimentalFeaturesCheckBox.Checked;
             }
             catch (InvalidOperationException)
             {

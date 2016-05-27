@@ -133,6 +133,15 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Convert.
+        /// </summary>
+        public static string Button_Convert {
+            get {
+                return ResourceManager.GetString("Button_Convert", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Dismiss.
         /// </summary>
         public static string Button_Dismiss {
@@ -959,6 +968,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Text_Changes {
             get {
                 return ResourceManager.GetString("Text_Changes", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to This project uses NuGet 2.x packages.config to track dependencies. You can update it to use NuGet 3.x project.json..
+        /// </summary>
+        public static string Text_ConvertPackagesConfigDescription {
+            get {
+                return ResourceManager.GetString("Text_ConvertPackagesConfigDescription", resourceCulture);
             }
         }
         
