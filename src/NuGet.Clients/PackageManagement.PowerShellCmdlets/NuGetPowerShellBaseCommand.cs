@@ -218,7 +218,12 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
             }
 
             stopWatch.Stop();
-            LogCore(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Cmdlet_TotalTime, stopWatch.Elapsed));
+
+            // Log total time elapsed except for Tab command
+            if((this as TabExpansionCommand) == null)
+            {
+                LogCore(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Cmdlet_TotalTime, stopWatch.Elapsed));
+            }
         }
 
         /// <summary>
