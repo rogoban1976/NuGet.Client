@@ -17,6 +17,8 @@ namespace NuGet.PackageManagement.UI
     /// <remarks>This is not expected to be thread safe.</remarks>
     public interface INuGetUI
     {
+        bool ShowNuGetUpgradeWindow(UpgradeInformationWindowModel upgradeInformationWindowModel);
+
         bool PromptForLicenseAcceptance(IEnumerable<PackageLicenseInfo> packages);
 
         void LaunchExternalLink(Uri url);

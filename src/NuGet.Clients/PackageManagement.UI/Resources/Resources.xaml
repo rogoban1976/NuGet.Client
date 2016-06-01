@@ -26,6 +26,8 @@
     x:Key="EmptyEnumerableToVisibilityConverter" />
   <nuget:EnumerableToVisibilityConverter
     x:Key="EnumerableToVisibilityConverter" />
+  <nuget:InverseBooleanConverter
+    x:Key="InverseBooleanConverter" />
   <nuget:BooleanToVisibilityConverter
     x:Key="BooleanToVisibilityConverter" />
   <nuget:BooleanToVisibilityConverter

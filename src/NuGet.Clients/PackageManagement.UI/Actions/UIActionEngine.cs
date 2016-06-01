@@ -85,6 +85,11 @@ namespace NuGet.PackageManagement.UI
             uiService.ProgressWindow.Log(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Operation_TotalTime, stopWatch.Elapsed));
         }
 
+        public void UpgradeNuGetProject(INuGetUI uiService, UpgradeInformationWindowModel upgradeInformationWindowModel)
+        {
+            var result = uiService.ShowNuGetUpgradeWindow(upgradeInformationWindowModel);
+        }
+
         /// <summary>
         /// Perform the multi-package update action.
         /// </summary>

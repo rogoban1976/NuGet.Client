@@ -889,6 +889,13 @@ namespace NuGet.PackageManagement
             return nuGetProjectActions;
         }
 
+        public async Task<IEnumerable<PackageDependencyInfo>> GetInstalledPackagesDependencyInfo(NuGetProject nuGetProject, CancellationToken token, bool includeUnresolved = false)
+        {
+            var targetFramework = nuGetProject.GetMetadata<NuGetFramework>(NuGetProjectMetadataKeys.TargetFramework);
+            var installedPackageIdentities = (await nuGetProject.GetInstalledPackagesAsync(token)).Select(pr => pr.PackageIdentity);
+            return await GetDependencyInfoFromPackagesFolder(installedPackageIdentities, targetFramework, includeUnresolved);
+        }
+
         /// <summary>
         /// Returns all installed packages in order of dependency. Packages with no dependencies come first.
         /// </summary>
@@ -896,11 +903,7 @@ namespace NuGet.PackageManagement
         public async Task<IEnumerable<PackageIdentity>> GetInstalledPackagesInDependencyOrder(NuGetProject nuGetProject,
             CancellationToken token)
         {
-            var targetFramework = nuGetProject.GetMetadata<NuGetFramework>(NuGetProjectMetadataKeys.TargetFramework);
-            var installedPackages = await nuGetProject.GetInstalledPackagesAsync(token);
-            var installedPackageIdentities = installedPackages.Select(pr => pr.PackageIdentity);
-            var dependencyInfoFromPackagesFolder = await GetDependencyInfoFromPackagesFolder(installedPackageIdentities,
-                targetFramework);
+            var dependencyInfoFromPackagesFolder = await GetInstalledPackagesDependencyInfo(nuGetProject, token);
 
             // dependencyInfoFromPackagesFolder can be null when NuGetProtocolException is thrown
             var resolverPackages = dependencyInfoFromPackagesFolder?.Select(package =>
@@ -1081,6 +1084,8 @@ namespace NuGet.PackageManagement
             return await PreviewInstallPackageAsync(nuGetProject, packageIdentity, resolutionContext,
                 nuGetProjectContext, primarySources, secondarySources, token);
         }
+
+        //public async 
 
         public async Task<IEnumerable<NuGetProjectAction>> PreviewInstallPackageAsync(NuGetProject nuGetProject, PackageIdentity packageIdentity,
             ResolutionContext resolutionContext, INuGetProjectContext nuGetProjectContext,
@@ -1527,6 +1532,8 @@ namespace NuGet.PackageManagement
                 return actions;
             }
 
+            Debugger.Break();
+
             // Step-1 : Get the metadata resources from "packages" folder or custom repository path
             var packageIdentity = packageReference.PackageIdentity;
             var projectName = NuGetProject.GetUniqueNameOrName(nuGetProject);
@@ -1551,7 +1558,7 @@ namespace NuGet.PackageManagement
         }
 
         private async Task<IEnumerable<PackageDependencyInfo>> GetDependencyInfoFromPackagesFolder(IEnumerable<PackageIdentity> packageIdentities,
-            NuGetFramework nuGetFramework)
+            NuGetFramework nuGetFramework, bool includeUnresolved = false)
         {
             try
             {
@@ -1565,6 +1572,9 @@ namespace NuGet.PackageManagement
                     if (packageDependencyInfo != null)
                     {
                         results.Add(packageDependencyInfo);
+                    } else if (includeUnresolved)
+                    {
+                        results.Add(new PackageDependencyInfo(package, null));
                     }
                 }
 

@@ -12,8 +12,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
-using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.PlatformUI;
 using Microsoft.VisualStudio.Shell.Interop;
 using NuGet.Packaging.Core;
 using NuGet.ProjectManagement;
@@ -53,7 +51,8 @@ namespace NuGet.PackageManagement.UI
         private readonly INuGetUILogger _uiLogger;
 
         // Initial to true so change detection logic is simple (since UI defaults to shown).
-        private bool _shouldShowConvertProject = true;
+        private bool _shouldShowUpgradeProject = true;
+        private bool _experimentalFeaturesEnabled;
 
         public PackageManagerModel Model { get; }
 
@@ -150,7 +149,7 @@ namespace NuGet.PackageManagement.UI
 
             Model.Context.SourceProvider.PackageSourceProvider.PackageSourcesChanged += Sources_PackageSourcesChanged;
 
-            UpdateConvertProjectVisibility(nugetSettings);
+            UpdateUpgradeProjectVisibility(nugetSettings);
             Unloaded += PackageManagerUnloaded;
             ExperimentalFeatures.EnabledChanged += ExperimentalFeaturesEnabledChanged;
 
@@ -231,24 +230,30 @@ namespace NuGet.PackageManagement.UI
             }
         }
 
-        private void UpdateConvertProjectVisibility(ISettings nugetSettings)
+        private void UpdateUpgradeProjectVisibility(ISettings nugetSettings)
         {
-            UpdateConvertProjectVisibility(new ExperimentalFeatures(nugetSettings).Enabled);
+            _experimentalFeaturesEnabled = new ExperimentalFeatures(nugetSettings).Enabled;
+            UpdateUpgradeProjectVisibility();
         }
 
-        private void UpdateConvertProjectVisibility(bool experimentalFeaturesEnabled)
+        private void UpdateUpgradeProjectVisibility()
         {
-            var newValue = ShouldShowConvertProject(experimentalFeaturesEnabled);
-            if (newValue != _shouldShowConvertProject)
+            NuGetUIThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                _shouldShowConvertProject = newValue;
-                _convertPackagesConfig.Visibility = newValue ? Visibility.Visible : Visibility.Collapsed;
-            }
+                await NuGetUIThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var newValue = ShouldShowConvertProject();
+                if (newValue != _shouldShowUpgradeProject)
+                {
+                    _shouldShowUpgradeProject = newValue;
+                    _upgradeNuGetProject.Visibility = newValue ? Visibility.Visible : Visibility.Collapsed;
+                }
+            });
         }
 
-        private bool ShouldShowConvertProject(bool experimentalFeaturesEnabled)
+        private bool ShouldShowConvertProject()
         {
-            if (!experimentalFeaturesEnabled)
+            if (!_experimentalFeaturesEnabled)
             {
                 return false;
             }
@@ -279,7 +284,8 @@ namespace NuGet.PackageManagement.UI
 
         private void ExperimentalFeaturesEnabledChanged(object sender, EnabledChangedEventArgs enabledChangedEventArgs)
         {
-            UpdateConvertProjectVisibility(enabledChangedEventArgs.Enabled);
+            _experimentalFeaturesEnabled = enabledChangedEventArgs.Enabled;
+            UpdateUpgradeProjectVisibility();
         }
 
         private void PackageManagerUnloaded(object sender, RoutedEventArgs e)
@@ -337,6 +343,7 @@ namespace NuGet.PackageManagement.UI
                 return;
             }
 
+            _nuGetProjectUpgradeCollapseDependencies = settings.NuGetProjectUpgradeCollapseDependencies;
             _detailModel.Options.ShowPreviewWindow = settings.ShowPreviewWindow;
             _detailModel.Options.RemoveDependencies = settings.RemoveDependencies;
             _detailModel.Options.ForceRemove = settings.ForceRemove;
@@ -407,6 +414,7 @@ namespace NuGet.PackageManagement.UI
         {
             var settings = new UserSettings
             {
+                NuGetProjectUpgradeCollapseDependencies = _nuGetProjectUpgradeCollapseDependencies,
                 SourceRepository = SelectedSource?.SourceName,
                 ShowPreviewWindow = _detailModel.Options.ShowPreviewWindow,
                 RemoveDependencies = _detailModel.Options.RemoveDependencies,
@@ -785,6 +793,7 @@ namespace NuGet.PackageManagement.UI
 
             RefreshAvailableUpdatesCount();
             RefreshConsolidatablePackagesCount();
+            UpdateUpgradeProjectVisibility();
 
             _packageDetail?.Refresh();
         }
@@ -1065,9 +1074,15 @@ namespace NuGet.PackageManagement.UI
             RefreshConsolidatablePackagesCount();
         }
 
-        private void ConvertButton_Click(object sender, RoutedEventArgs e)
-        {
+        private bool _nuGetProjectUpgradeCollapseDependencies;
 
+        private async void UpgradeButton_Click(object sender, RoutedEventArgs e)
+        {
+            var project = Model.Context.Projects.FirstOrDefault();
+            var packageDependencyInfos = await Model.Context.PackageManager.GetInstalledPackagesDependencyInfo(project, CancellationToken.None, includeUnresolved: true);
+            var upgradeInformationWindowModel = new UpgradeInformationWindowModel(project, packageDependencyInfos.ToList(), _nuGetProjectUpgradeCollapseDependencies);
+            Model.Context.UIActionEngine.UpgradeNuGetProject(Model.UIController, upgradeInformationWindowModel);
+            _nuGetProjectUpgradeCollapseDependencies = upgradeInformationWindowModel.CollapseDependencies;
         }
     }
 }

@@ -14,9 +14,9 @@ using NuGet.Packaging.Core;
 
 namespace NuGet.ProjectManagement
 {
-    internal static class MSBuildNuGetProjectSystemUtility
+    public static class MSBuildNuGetProjectSystemUtility
     {
-        internal static FrameworkSpecificGroup GetMostCompatibleGroup(NuGetFramework projectTargetFramework,
+        public static FrameworkSpecificGroup GetMostCompatibleGroup(NuGetFramework projectTargetFramework,
             IEnumerable<FrameworkSpecificGroup> itemGroups)
         {
             var reducer = new FrameworkReducer();

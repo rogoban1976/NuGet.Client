@@ -38,6 +38,17 @@ namespace NuGet.PackageManagement.UI
             DisplayPreviewWindow = true;
         }
 
+        public bool ShowNuGetUpgradeWindow(UpgradeInformationWindowModel upgradeInformationWindowModel)
+        {
+            var upgradeInformationWindow = new UpgradeInformationWindow
+            {
+                DataContext = upgradeInformationWindowModel
+            };
+
+            var result = upgradeInformationWindow.ShowModal();
+            return result ?? false;
+        }
+
         public bool PromptForLicenseAcceptance(IEnumerable<PackageLicenseInfo> packages)
         {
             var result = false;

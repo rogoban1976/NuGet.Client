@@ -133,15 +133,6 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Convert.
-        /// </summary>
-        public static string Button_Convert {
-            get {
-                return ResourceManager.GetString("Button_Convert", resourceCulture);
-            }
-        }
-        
-        /// <summary>
         ///   Looks up a localized string similar to Dismiss.
         /// </summary>
         public static string Button_Dismiss {
@@ -255,6 +246,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Button_Update {
             get {
                 return ResourceManager.GetString("Button_Update", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Upgrade.
+        /// </summary>
+        public static string Button_Upgrade {
+            get {
+                return ResourceManager.GetString("Button_Upgrade", resourceCulture);
             }
         }
         
@@ -891,7 +891,7 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Collapse depencies.
+        ///   Looks up a localized string similar to Collapse depencies (recommended).
         /// </summary>
         public static string Radio_CollapseDepencies {
             get {
@@ -900,11 +900,11 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Include all packages.
+        ///   Looks up a localized string similar to Flatten dependencies.
         /// </summary>
-        public static string Radio_KeepAllPackages {
+        public static string Radio_FlattenDependencies {
             get {
-                return ResourceManager.GetString("Radio_KeepAllPackages", resourceCulture);
+                return ResourceManager.GetString("Radio_FlattenDependencies", resourceCulture);
             }
         }
         
@@ -972,15 +972,6 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to This project uses NuGet 2.x packages.config to track dependencies. You can update it to use NuGet 3.x project.json..
-        /// </summary>
-        public static string Text_ConvertPackagesConfigDescription {
-            get {
-                return ResourceManager.GetString("Text_ConvertPackagesConfigDescription", resourceCulture);
-            }
-        }
-        
-        /// <summary>
         ///   Looks up a localized string similar to This tool will switch your project from using packages.config to using project.json to maintain your NuGet packages..
         /// </summary>
         public static string Text_ConvertPackagesConfigIntroText1 {
@@ -1022,6 +1013,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Text_ErrorOccurred {
             get {
                 return ResourceManager.GetString("Text_ErrorOccurred", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Packages in project.json:.
+        /// </summary>
+        public static string Text_IncludedPackages {
+            get {
+                return ResourceManager.GetString("Text_IncludedPackages", resourceCulture);
             }
         }
         
@@ -1134,6 +1134,15 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Issues:.
+        /// </summary>
+        public static string Text_NuGetUpgradeIssues {
+            get {
+                return ResourceManager.GetString("Text_NuGetUpgradeIssues", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Packages found.
         /// </summary>
         public static string Text_PackagesFound {
@@ -1157,6 +1166,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Text_Progress {
             get {
                 return ResourceManager.GetString("Text_Progress", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Project Analysis Results.
+        /// </summary>
+        public static string Text_ProjectAnalysisResults {
+            get {
+                return ResourceManager.GetString("Text_ProjectAnalysisResults", resourceCulture);
             }
         }
         
@@ -1229,6 +1247,24 @@ namespace NuGet.PackageManagement.UI {
         public static string Text_ShowAll {
             get {
                 return ResourceManager.GetString("Text_ShowAll", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to This project uses NuGet 2.x packages.config to track dependencies. You can upgrade it to use NuGet 3.x project.json..
+        /// </summary>
+        public static string Text_UpgradeNuGetProjectDescription {
+            get {
+                return ResourceManager.GetString("Text_UpgradeNuGetProjectDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Upgrade Options.
+        /// </summary>
+        public static string Text_UpgradeOptions {
+            get {
+                return ResourceManager.GetString("Text_UpgradeOptions", resourceCulture);
             }
         }
         
@@ -1382,6 +1418,15 @@ namespace NuGet.PackageManagement.UI {
         public static string WindowTitle_LicenseAcceptance {
             get {
                 return ResourceManager.GetString("WindowTitle_LicenseAcceptance", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to NuGet Upgrader.
+        /// </summary>
+        public static string WindowTitle_NuGetUpgrader {
+            get {
+                return ResourceManager.GetString("WindowTitle_NuGetUpgrader", resourceCulture);
             }
         }
         
