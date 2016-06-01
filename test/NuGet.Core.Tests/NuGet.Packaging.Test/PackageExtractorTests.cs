@@ -5,9 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
-using NuGet.Packaging.Core;
 using NuGet.Test.Utility;
-using NuGet.Versioning;
 using Xunit;
 
 namespace NuGet.Packaging.Test
@@ -15,28 +13,25 @@ namespace NuGet.Packaging.Test
     public class PackageExtractorTests
     {
         [Fact]
-        public void PackageExtractor_WithContentXmlFile()
+        public void PackageExtractor_withContentXmlFile()
         {
             // Arrange
             using (var packageStream = TestPackages.GetTestPackageWithContentXmlFile())
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             using (var packageReader = new PackageArchiveReader(packageStream))
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("packageA", new NuGetVersion("2.0.3"));
+                var packagePath = Path.Combine(root, "packageA.2.0.3");
 
                 // Act
                 var files = PackageExtractor.ExtractPackage(
                     packageReader,
                     packageStream,
-                    resolver,
+                    new PackagePathResolver(root),
                     new PackageExtractionContext(NullLogger.Instance),
                     CancellationToken.None);
-
                 // Assert
-                var packagePath = resolver.GetInstallPath(identity);
-                Assert.DoesNotContain(Path.Combine(packagePath, "[Content_Types].xml"), files);
-                Assert.Contains(Path.Combine(packagePath, "content", "[Content_Types].xml"), files);
+                Assert.DoesNotContain(Path.Combine(packagePath + "[Content_Types].xml"), files);
+                Assert.Contains(Path.Combine(packagePath, "content" + Path.DirectorySeparatorChar + "[Content_Types].xml"), files);
             }
         }
 
@@ -77,12 +72,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "content/A.nupkg");
 
@@ -96,13 +89,12 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "content", "A.nupkg")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "content", "A.nupkg")));
                 }
             }
         }
@@ -206,13 +198,8 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
-                var satelliteIdentity = new PackageIdentity(identity.Id + ".fr", identity.Version);
-                var packageFileInfo = await TestPackages.GetRuntimePackageAsync(root, identity.Id, identity.Version.ToString());
-                var satellitePackageInfo = await TestPackages.GetSatellitePackageAsync(root, identity.Id, identity.Version.ToString(), "fr");
-                
-
+                var packageFileInfo = await TestPackages.GetRuntimePackageAsync(root, "A", "2.0.3");
+                var satellitePackageInfo = await TestPackages.GetSatellitePackageAsync(root, "A", "2.0.3", "fr");
 
                 using (var packageStream = File.OpenRead(packageFileInfo.FullName))
                 using (var satellitePackageStream = File.OpenRead(satellitePackageInfo.FullName))
@@ -221,19 +208,19 @@ namespace NuGet.Packaging.Test
 
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(packageStream,
-                                                                     resolver,
+                                                                     new PackagePathResolver(root),
                                                                      packageExtractionContext,
                                                                      CancellationToken.None);
 
                     var satellitePackageFiles = PackageExtractor.ExtractPackage(satellitePackageStream,
-                                                                     resolver,
+                                                                     new PackagePathResolver(root),
                                                                      packageExtractionContext,
                                                                      CancellationToken.None);
 
                     var pathToAFrDllInSatellitePackage
-                        = Path.Combine(resolver.GetInstallPath(satelliteIdentity), "lib", "net45", "fr", "A.resources.dll");
+                        = Path.Combine(root, "A.fr.2.0.3", "lib", "net45", "fr", "A.resources.dll");
                     var pathToAFrDllInRunTimePackage
-                        = Path.Combine(resolver.GetInstallPath(identity), "lib", "net45", "fr", "A.resources.dll");
+                        = Path.Combine(root, "A.2.0.3", "lib", "net45", "fr", "A.resources.dll");
 
                     Assert.True(File.Exists(pathToAFrDllInSatellitePackage));
                     Assert.True(File.Exists(pathToAFrDllInRunTimePackage));
@@ -247,12 +234,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml",
@@ -268,15 +253,14 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "appconfig.xml")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.xml")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "appconfig.xml")));
                 }
             }
         }
@@ -287,12 +271,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml",
@@ -308,17 +290,16 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    var xmlZip = Path.Combine(installPath, "lib", "net45", "A.xml.zip");
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml")));
+                    var xmlZip = Path.Combine(root, "A.2.0.4", "lib", "net45", "A.xml.zip");
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.dll")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.xml")));
                     Assert.True(File.Exists(xmlZip));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "appconfig.xml")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "appconfig.xml")));
 
                     // Verify the zip has a A.xml in it.
                     using (var fileStream = File.OpenRead(xmlZip))
@@ -337,12 +318,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "ref/dotnet5.4/A.xml",
                    "ref/dotnet5.4/fr/B.xml",
@@ -360,12 +339,12 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var packageRoot = Path.Combine(resolver.GetInstallPath(identity), "ref", "dotnet5.4");
+                    var packageRoot = Path.Combine(root, "A.2.0.4", "ref", "dotnet5.4");
                     Assert.False(File.Exists(Path.Combine(packageRoot, "fr", "B.xml")));
                     Assert.True(File.Exists(Path.Combine(packageRoot, "fr", "B.xml.zip")));
                     Assert.False(File.Exists(Path.Combine(packageRoot, "zh-hans", "A.xml.zip")));
@@ -381,12 +360,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml",
@@ -402,16 +379,15 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml.zip")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "appconfig.xml")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.dll")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.xml")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "A.xml.zip")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.4", "lib", "net45", "appconfig.xml")));
                 }
             }
         }
@@ -422,12 +398,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.4",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "ref/portable-net40+win8+netcore/A.dll",
                    "ref/portable-net40+win8+netcore/A.xml",
@@ -445,12 +419,12 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var packageRoot = Path.Combine(resolver.GetInstallPath(identity), "ref", "portable-net40+win8+netcore");
+                    var packageRoot = Path.Combine(root, "A.2.0.4", "ref", "portable-net40+win8+netcore");
                     Assert.True(File.Exists(Path.Combine(packageRoot, "A.dll")));
                     Assert.False(File.Exists(Path.Combine(packageRoot, "A.xml")));
                     Assert.False(File.Exists(Path.Combine(packageRoot, "A.xml.zip")));
@@ -470,20 +444,17 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml");
-                var satelliteIdentity = new PackageIdentity(identity.Id + ".fr", identity.Version);
                 var satellitePackageInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   satelliteIdentity.Id,
-                   satelliteIdentity.Version.ToString(),
+                   "A.fr",
+                   "2.0.3",
                    language: "fr",
                    entryModifiedTime: DateTimeOffset.UtcNow.LocalDateTime,
                    zipEntries: new[] { "lib/net45/fr/A.resources.dll", "lib/net45/fr/A.xml" });
@@ -499,25 +470,22 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     var satellitePackageFiles = PackageExtractor.ExtractPackage(
                         satellitePackageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
-                    // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    var satelliteInstallPath = resolver.GetInstallPath(satelliteIdentity);
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml.zip")));
-                    Assert.False(File.Exists(Path.Combine(satelliteInstallPath, "lib", "net45", "fr", "A.xml")));
-                    Assert.False(File.Exists(Path.Combine(satelliteInstallPath, "lib", "net45", "fr", "A.xml.zip")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "fr", "A.resources.dll")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.xml")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.xml.zip")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.fr.2.0.3", "lib", "net45", "fr", "A.xml")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.fr.2.0.3", "lib", "net45", "fr", "A.xml.zip")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "fr", "A.resources.dll")));
                 }
             }
         }
@@ -528,12 +496,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml",
@@ -549,14 +515,13 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml.zip")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.xml.zip")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
 
                     // If we got this far, extraction did not throw.
                 }
@@ -569,12 +534,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "lib/net45/A.xml",
@@ -590,14 +553,13 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.xml.zip")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.xml.zip")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
                 }
             }
         }
@@ -608,12 +570,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "content/net40/B.txt");
@@ -628,16 +588,15 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.2.0.3.nupkg")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.nuspec")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "content", "net40", "B.txt")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "A.2.0.3.nupkg")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "A.nuspec")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "content", "net40", "B.txt")));
                 }
             }
         }
@@ -648,12 +607,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "content/net40/B.txt");
@@ -668,96 +625,15 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.2.0.3.nupkg")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "a.nuspec")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "content", "net40", "B.txt")));
-                }
-            }
-        }
-
-        [Fact]
-        public async Task PackageExtractor_WithPackageSaveModeNuspec_ExtractsInnerNuspec()
-        {
-            // Arrange
-            using (var root = TestFileSystemUtility.CreateRandomTestFolder())
-            {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
-                var packageFileInfo = await TestPackages.GeneratePackageAsync(
-                   root,
-                   identity.Id,
-                   identity.Version.ToString(),
-                   DateTimeOffset.UtcNow.LocalDateTime,
-                   "lib/net45/A.dll",
-                   "content/net40/B.nuspec");
-
-                using (var packageStream = File.OpenRead(packageFileInfo.FullName))
-                {
-                    var packageExtractionContext = new PackageExtractionContext(NullLogger.Instance)
-                    {
-                        PackageSaveMode = PackageSaveMode.Nupkg | PackageSaveMode.Files | PackageSaveMode.Nuspec
-                    };
-
-                    // Act
-                    var packageFiles = PackageExtractor.ExtractPackage(
-                        packageStream,
-                        resolver,
-                        packageExtractionContext,
-                        CancellationToken.None);
-
-                    // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.2.0.3.nupkg")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.nuspec")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "content", "net40", "B.nuspec")));
-                }
-            }
-        }
-
-        [Fact]
-        public async Task PackageExtractor_WithoutPackageSaveModeNuspec_ExtractsInnerNuspec()
-        {
-            // Arrange
-            using (var root = TestFileSystemUtility.CreateRandomTestFolder())
-            {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
-                var packageFileInfo = await TestPackages.GeneratePackageAsync(
-                   root,
-                   identity.Id,
-                   identity.Version.ToString(),
-                   DateTimeOffset.UtcNow.LocalDateTime,
-                   "lib/net45/A.dll",
-                   "content/net40/B.nuspec");
-
-                using (var packageStream = File.OpenRead(packageFileInfo.FullName))
-                {
-                    var packageExtractionContext = new PackageExtractionContext(NullLogger.Instance)
-                    {
-                        PackageSaveMode = PackageSaveMode.Nupkg | PackageSaveMode.Files
-                    };
-
-                    // Act
-                    var packageFiles = PackageExtractor.ExtractPackage(
-                        packageStream,
-                        resolver,
-                        packageExtractionContext,
-                        CancellationToken.None);
-
-                    // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.2.0.3.nupkg")));
-                    Assert.False(File.Exists(Path.Combine(installPath, "a.nuspec")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "content", "net40", "B.nuspec")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "A.2.0.3.nupkg")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "A.nuspec")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "content", "net40", "B.txt")));
                 }
             }
         }
@@ -768,12 +644,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll",
                    "content/net40/B.txt");
@@ -788,16 +662,15 @@ namespace NuGet.Packaging.Test
                     // Act
                     var packageFiles = PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
                     // Assert
-                    var installPath = resolver.GetInstallPath(identity);
-                    Assert.False(File.Exists(Path.Combine(installPath, "a.2.0.3.nupkg")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "a.nuspec")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "lib", "net45", "A.dll")));
-                    Assert.True(File.Exists(Path.Combine(installPath, "content", "net40", "B.txt")));
+                    Assert.False(File.Exists(Path.Combine(root, "A.2.0.3", "A.2.0.3.nupkg")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "A.nuspec")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll")));
+                    Assert.True(File.Exists(Path.Combine(root, "A.2.0.3", "content", "net40", "B.txt")));
                 }
             }
         }
@@ -808,12 +681,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new VersionFolderPathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll");
 
@@ -823,17 +694,19 @@ namespace NuGet.Packaging.Test
                     await PackageExtractor.InstallFromSourceAsync(
                         packageStream.CopyToAsync,
                         new VersionFolderPathContext(
-                            identity,
+                            new Core.PackageIdentity("A", new Versioning.NuGetVersion("2.0.3")),
                             root,
                             NullLogger.Instance,
+                            fixNuspecIdCasing: false,
                             packageSaveMode: PackageSaveMode.Nupkg | PackageSaveMode.Files,
+                            normalizeFileNames: false,
                             xmlDocFileSaveMode: XmlDocFileSaveMode.None),
                         CancellationToken.None);
 
                     // Assert
-                    Assert.True(File.Exists(resolver.GetPackageFilePath(identity.Id, identity.Version)), "The .nupkg should exist.");
-                    Assert.False(File.Exists(resolver.GetManifestFilePath(identity.Id, identity.Version)), "The .nuspec should not exist.");
-                    Assert.True(File.Exists(Path.Combine(resolver.GetInstallPath(identity.Id, identity.Version), "lib", "net45", "A.dll")), "The asset should exist.");
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "A.2.0.3.nupkg")));
+                    Assert.False(File.Exists(Path.Combine(root, "A", "2.0.3", "A.nuspec")));
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "lib", "net45", "A.dll")));
                 }
             }
         }
@@ -844,12 +717,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new VersionFolderPathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll");
 
@@ -859,17 +730,19 @@ namespace NuGet.Packaging.Test
                     await PackageExtractor.InstallFromSourceAsync(
                         packageStream.CopyToAsync,
                         new VersionFolderPathContext(
-                            identity,
+                            new Core.PackageIdentity("A", new Versioning.NuGetVersion("2.0.3")),
                             root,
                             NullLogger.Instance,
+                            fixNuspecIdCasing: false,
                             packageSaveMode: PackageSaveMode.Nuspec | PackageSaveMode.Files,
+                            normalizeFileNames: false,
                             xmlDocFileSaveMode: XmlDocFileSaveMode.None),
                         CancellationToken.None);
 
                     // Assert
-                    Assert.False(File.Exists(resolver.GetPackageFilePath(identity.Id, identity.Version)), "The .nupkg should not exist.");
-                    Assert.True(File.Exists(resolver.GetManifestFilePath(identity.Id, identity.Version)), "The .nuspec should exist.");
-                    Assert.True(File.Exists(Path.Combine(resolver.GetInstallPath(identity.Id, identity.Version), "lib", "net45", "A.dll")), "The asset should exist.");
+                    Assert.False(File.Exists(Path.Combine(root, "A", "2.0.3", "A.2.0.3.nupkg")));
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "A.nuspec")));
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "lib", "net45", "A.dll")));
 
                 }
             }
@@ -881,12 +754,10 @@ namespace NuGet.Packaging.Test
             // Arrange
             using (var root = TestFileSystemUtility.CreateRandomTestFolder())
             {
-                var resolver = new VersionFolderPathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
                 var packageFileInfo = await TestPackages.GeneratePackageAsync(
                    root,
-                   identity.Id,
-                   identity.Version.ToString(),
+                   "A",
+                   "2.0.3",
                    DateTimeOffset.UtcNow.LocalDateTime,
                    "lib/net45/A.dll");
 
@@ -896,17 +767,19 @@ namespace NuGet.Packaging.Test
                     await PackageExtractor.InstallFromSourceAsync(
                         packageStream.CopyToAsync,
                         new VersionFolderPathContext(
-                            identity,
+                            new Core.PackageIdentity("A", new Versioning.NuGetVersion("2.0.3")),
                             root,
                             NullLogger.Instance,
+                            fixNuspecIdCasing: false,
                             packageSaveMode: PackageSaveMode.Nupkg | PackageSaveMode.Nuspec,
+                            normalizeFileNames: false,
                             xmlDocFileSaveMode: XmlDocFileSaveMode.None),
                         CancellationToken.None);
 
                     // Assert
-                    Assert.True(File.Exists(resolver.GetPackageFilePath(identity.Id, identity.Version)), "The .nupkg should exist.");
-                    Assert.True(File.Exists(resolver.GetManifestFilePath(identity.Id, identity.Version)), "The .nuspec should exist.");
-                    Assert.False(File.Exists(Path.Combine(resolver.GetInstallPath(identity.Id, identity.Version), "lib", "net45", "A.dll")), "The asset should not exist.");
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "A.2.0.3.nupkg")));
+                    Assert.True(File.Exists(Path.Combine(root, "A", "2.0.3", "A.nuspec")));
+                    Assert.False(File.Exists(Path.Combine(root, "A", "2.0.3", "lib", "net45", "A.dll")));
                 }
             }
         }
@@ -921,13 +794,7 @@ namespace NuGet.Packaging.Test
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AdjustToUniversal);
 
-                var resolver = new PackagePathResolver(root);
-                var identity = new PackageIdentity("A", new NuGetVersion("2.0.3"));
-                var packageFileInfo = await TestPackages.GeneratePackageAsync(
-                        root,
-                        identity.Id,
-                        identity.Version.ToString(),
-                        time.ToLocalTime(), "lib/net45/A.dll");
+                FileInfo packageFileInfo = await TestPackages.GeneratePackageAsync(root, "A", "2.0.3", time.ToLocalTime(), "lib/net45/A.dll");
 
                 using (FileStream packageStream = File.OpenRead(packageFileInfo.FullName))
                 {
@@ -939,12 +806,11 @@ namespace NuGet.Packaging.Test
                     // Act
                     PackageExtractor.ExtractPackage(
                         packageStream,
-                        resolver,
+                        new PackagePathResolver(root),
                         packageExtractionContext,
                         CancellationToken.None);
 
-                    var installPath = resolver.GetInstallPath(identity);
-                    string outputDll = Path.Combine(installPath, "lib", "net45", "A.dll");
+                    string outputDll = Path.Combine(root, "A.2.0.3", "lib", "net45", "A.dll");
                     DateTime outputTime = File.GetLastWriteTimeUtc(outputDll);
 
                     // Assert
