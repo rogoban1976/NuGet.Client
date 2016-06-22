@@ -32,15 +32,14 @@ namespace NuGet.Commands
             LockFile previousLockFile,
             PackageSpec project,
             IEnumerable<RestoreTargetGraph> targetGraphs,
-            NuGetv3LocalRepository repository,
+            IReadOnlyList<NuGetv3LocalRepository> localRepositories,
             RemoteWalkContext context,
             IEnumerable<ToolRestoreResult> toolRestoreResults)
         {
             var lockFile = new LockFile();
             lockFile.Version = _lockFileVersion;
 
-            var resolver = new VersionFolderPathResolver(repository.RepositoryRoot);
-            var previousLibraries = previousLockFile?.Libraries.ToDictionary(l => Tuple.Create<string, NuGetVersion>(l.Name, l.Version));
+            var previousLibraries = previousLockFile?.Libraries.ToDictionary(l => Tuple.Create(l.Name, l.Version));
 
             // Use empty string as the key of dependencies shared by all frameworks
             lockFile.ProjectFileDependencyGroups.Add(new ProjectFileDependencyGroup(
@@ -111,15 +110,17 @@ namespace NuGet.Commands
                 else if (library.Type == LibraryType.Package)
                 {
                     // Packages
-                    var packageInfo = repository.FindPackagesById(library.Name)
-                        .FirstOrDefault(p => p.Version == library.Version);
+                    var packageInfo = NuGetv3LocalRepositoryUtility.GetPackage(localRepositories, library.Name, library.Version);
 
                     if (packageInfo == null)
                     {
                         continue;
                     }
 
-                    var sha512 = File.ReadAllText(resolver.GetHashPath(packageInfo.Id, packageInfo.Version));
+                    var package = packageInfo.Package;
+                    var resolver = packageInfo.Repository.PathResolver;
+
+                    var sha512 = File.ReadAllText(resolver.GetHashPath(package.Id, package.Version));
 
                     LockFileLibrary previousLibrary = null;
                     previousLibraries?.TryGetValue(Tuple.Create(library.Name, library.Version), out previousLibrary);
@@ -129,14 +130,13 @@ namespace NuGet.Commands
                     // If we have the same library in the lock file already, use that.
                     if (previousLibrary == null || previousLibrary.Sha512 != sha512)
                     {
-                        var path = resolver.GetPackageDirectory(packageInfo.Id, packageInfo.Version);
+                        var path = resolver.GetPackageDirectory(package.Id, package.Version);
                         path = PathUtility.GetPathWithForwardSlashes(path);
 
                         lockFileLib = CreateLockFileLibrary(
-                            packageInfo,
+                            package,
                             sha512,
-                            path,
-                            correctedPackageName: library.Name);
+                            path);
                     }
                     else if (Path.DirectorySeparatorChar != LockFile.DirectorySeparatorChar)
                     {
@@ -246,13 +246,14 @@ namespace NuGet.Commands
                     }
                     else if (library.Type == LibraryType.Package)
                     {
-                        var packageInfo = repository.FindPackagesById(library.Name)
-                            .FirstOrDefault(p => p.Version == library.Version);
+                        var packageInfo = NuGetv3LocalRepositoryUtility.GetPackage(localRepositories, library.Name, library.Version);
 
                         if (packageInfo == null)
                         {
                             continue;
                         }
+
+                        var package = packageInfo.Package;
 
                         // include flags
                         LibraryIncludeFlags includeFlags;
@@ -263,10 +264,8 @@ namespace NuGet.Commands
 
                         var targetLibrary = LockFileUtils.CreateLockFileTargetLibrary(
                             libraries[Tuple.Create(library.Name, library.Version)],
-                            packageInfo,
+                            package,
                             targetGraph,
-                            resolver,
-                            correctedPackageName: library.Name,
                             dependencyType: includeFlags,
                             targetFrameworkOverride: null,
                             dependencies: graphItem.Data.Dependencies);
@@ -280,10 +279,8 @@ namespace NuGet.Commands
 
                             var targetLibraryWithoutFallback = LockFileUtils.CreateLockFileTargetLibrary(
                                 libraries[Tuple.Create(library.Name, library.Version)],
-                                packageInfo,
+                                package,
                                 targetGraph,
-                                resolver,
-                                correctedPackageName: library.Name,
                                 targetFrameworkOverride: nonFallbackFramework,
                                 dependencyType: includeFlags,
                                 dependencies: graphItem.Data.Dependencies);
@@ -306,6 +303,8 @@ namespace NuGet.Commands
             PopulateProjectFileToolGroups(project, lockFile);
 
             PopulateTools(toolRestoreResults, lockFile);
+
+            PopulatePackageFolders(localRepositories.Select(repo => repo.RepositoryRoot).Distinct(), lockFile);
 
             return lockFile;
         }
@@ -351,14 +350,16 @@ namespace NuGet.Commands
             }
         }
 
-        private static LockFileLibrary CreateLockFileLibrary(LocalPackageInfo package, string sha512, string path, string correctedPackageName)
+        private static void PopulatePackageFolders(IEnumerable<string> packageFolders, LockFile lockFile)
+        {
+            lockFile.PackageFolders.AddRange(packageFolders.Select(path => new LockFileItem(path)));
+        }
+
+        private static LockFileLibrary CreateLockFileLibrary(LocalPackageInfo package, string sha512, string path)
         {
             var lockFileLib = new LockFileLibrary();
-
-            // package.Id is read from nuspec and it might be in wrong casing.
-            // correctedPackageName should be the package name used by dependency graph and
-            // it has the correct casing that runtime needs during dependency resolution.
-            lockFileLib.Name = correctedPackageName ?? package.Id;
+            
+            lockFileLib.Name = package.Id;
             lockFileLib.Version = package.Version;
             lockFileLib.Type = LibraryType.Package;
             lockFileLib.Sha512 = sha512;

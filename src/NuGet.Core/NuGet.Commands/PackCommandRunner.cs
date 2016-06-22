@@ -151,6 +151,11 @@ namespace NuGet.Commands
                 properties += $" -b \"{basePath}\"";
             }
 
+            if (!string.IsNullOrEmpty(_packArgs.Suffix))
+            {
+                properties += $" --version-suffix {_packArgs.Suffix}";
+            }
+
             string dotnetLocation = NuGetEnvironment.GetDotNetLocation();
 
             var processStartInfo = new ProcessStartInfo
@@ -181,7 +186,7 @@ namespace NuGet.Commands
         private void AddOutputFiles(PackageBuilder builder, bool includeSymbols)
         {
             // Default to Debug unless the configuration was passed in as a property
-            string configuration = "Debug";
+            var configuration = "Debug";
             foreach (var property in _packArgs.Properties)
             {
                 if (String.Equals(Configuration, property.Key, StringComparison.OrdinalIgnoreCase))
@@ -190,13 +195,20 @@ namespace NuGet.Commands
                 }
             }
 
+            var outputName = builder.OutputName == null ? builder.Id : builder.OutputName;
+
             string projectOutputDirectory;
-            string configFolderPath = $"\\{builder.Id}\\bin\\{configuration}";
-            IEnumerable<string> files = PathResolver.PerformWildcardSearch(_packArgs.BasePath, $"**{configFolderPath}\\");
-            string targetPath = files.FirstOrDefault();
+            var configFolderPath = $"\\{builder.Id}\\bin\\{configuration}";
+            var path = string.IsNullOrEmpty(_packArgs.BasePath) ? _packArgs.CurrentDirectory : _packArgs.BasePath;
+            var files = PathResolver.PerformWildcardSearch(path, $"**{configFolderPath}\\");
+            var targetPath = files.FirstOrDefault(f => f.EndsWith(outputName + ".dll") ||
+                                                    f.EndsWith(outputName + ".exe") ||
+                                                    f.EndsWith(outputName + ".xml") ||
+                                                    f.EndsWith(outputName + ".winmd") ||
+                                                    f.EndsWith(outputName + ".runtimeconfig.json"));
             if (targetPath == null)
             {
-                targetPath = Path.Combine(_packArgs.BasePath, "bin", configuration, builder.Id + ".dll");
+                targetPath = Path.Combine(path, "bin", configuration, outputName + ".dll");
 
                 projectOutputDirectory = Path.GetDirectoryName(targetPath);
             }
@@ -223,7 +235,7 @@ namespace NuGet.Commands
                 allowedOutputExtensions.Add(".pdb");
             }
 
-            string targetFileName = Path.GetFileNameWithoutExtension(targetPath);
+            var targetFileName = Path.GetFileNameWithoutExtension(targetPath);
 
             if (!Directory.Exists(projectOutputDirectory))
             {
@@ -232,7 +244,7 @@ namespace NuGet.Commands
 
             foreach (var file in GetFiles(projectOutputDirectory, targetFileName, allowedOutputExtensions))
             {
-                string targetFolder = Path.GetDirectoryName(file).Replace(projectOutputDirectory + Path.DirectorySeparatorChar, "");
+                var targetFolder = Path.GetDirectoryName(file).Replace(projectOutputDirectory + Path.DirectorySeparatorChar, "");
 
                 var packageFile = new PhysicalPackageFile
                 {
@@ -272,9 +284,11 @@ namespace NuGet.Commands
                 version = new NuGetVersion(_packArgs.Version);
             }
 
+            var basePath = string.IsNullOrEmpty(_packArgs.BasePath) ? _packArgs.CurrentDirectory : _packArgs.BasePath;
+
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             {
-                LoadProjectJsonFile(builder, path, _packArgs.BasePath, Path.GetFileName(Path.GetDirectoryName(path)), stream, version, _packArgs.Suffix, propertyProvider);
+                LoadProjectJsonFile(builder, path, basePath, Path.GetFileName(Path.GetDirectoryName(path)), stream, version, _packArgs.Suffix, propertyProvider);
             }
 
             return builder;
@@ -373,10 +387,77 @@ namespace NuGet.Commands
             {
                 builder.Language = spec.Language;
             }
+            if (spec.BuildOptions != null && spec.BuildOptions.OutputName != null)
+            {
+                builder.OutputName = spec.BuildOptions.OutputName;
+            }
 
             foreach (var include in spec.PackInclude)
             {
                 builder.AddFiles(basePath, include.Value, include.Key);
+            }
+
+            if (spec.PackOptions != null)
+            {
+                if (spec.PackOptions.IncludeExcludeFiles != null)
+                {
+                    string fullExclude;
+                    string filesExclude;
+                    CalculateExcludes(spec.PackOptions.IncludeExcludeFiles, out fullExclude, out filesExclude);
+
+                    if (spec.PackOptions.IncludeExcludeFiles.Include != null)
+                    {
+                        foreach (var include in spec.PackOptions.IncludeExcludeFiles.Include)
+                        {
+                            builder.AddFiles(basePath, include, string.Empty, fullExclude);
+                        }
+                    }
+
+                    if (spec.PackOptions.IncludeExcludeFiles.IncludeFiles != null)
+                    {
+                        foreach (var includeFile in spec.PackOptions.IncludeExcludeFiles.IncludeFiles)
+                        {
+                            var resolvedPath = ResolvePath(new PhysicalPackageFile() { SourcePath = includeFile }, basePath);
+
+                            builder.AddFiles(basePath, includeFile, resolvedPath, filesExclude);
+                        }
+                    }
+                }
+
+                if (spec.PackOptions.Mappings != null)
+                {
+                    foreach (var map in spec.PackOptions.Mappings)
+                    {
+                        string fullExclude;
+                        string filesExclude;
+                        CalculateExcludes(map.Value, out fullExclude, out filesExclude);
+
+                        if (map.Value.Include != null)
+                        {
+                            // Include paths from project.json are glob matching strings.
+                            // Calling AddFiles for "path/**" with an output target of "newpath/"
+                            // should go to "newpath/filename" but instead goes to "newpath/path/filename".
+                            // To get around this, do a WildcardSearch ahead of the AddFiles to get full paths.
+                            // Passing in the target path will then what we want.
+                            foreach (var include in map.Value.Include)
+                            {
+                                var matchedFiles = PathResolver.PerformWildcardSearch(basePath, include);
+                                foreach (var matchedFile in matchedFiles)
+                                {
+                                    builder.AddFiles(basePath, matchedFile, map.Key, fullExclude);
+                                }
+                            }
+                        }
+
+                        if (map.Value.IncludeFiles != null)
+                        {
+                            foreach (var include in map.Value.IncludeFiles)
+                            {
+                                builder.AddFiles(basePath, include, map.Key, filesExclude);
+                            }
+                        }
+                    }
+                }
             }
 
             if (spec.Tags.Any())
@@ -405,6 +486,28 @@ namespace NuGet.Commands
             }
 
             builder.PackageTypes = new Collection<PackageType>(spec.PackOptions?.PackageType?.ToList() ?? new List<PackageType>());
+        }
+
+        private static void CalculateExcludes(IncludeExcludeFiles files, out string fullExclude, out string filesExclude)
+        {
+            fullExclude = string.Empty;
+            filesExclude = string.Empty;
+            if (files.Exclude != null &&
+                files.Exclude.Any())
+            {
+                fullExclude = string.Join(";", files.Exclude);
+            }
+
+            if (files.ExcludeFiles != null &&
+                files.ExcludeFiles.Any())
+            {
+                if (!string.IsNullOrEmpty(fullExclude))
+                {
+                    fullExclude += ";";
+                }
+                filesExclude += string.Join(";", files.ExcludeFiles);
+                fullExclude += filesExclude;
+            }
         }
 
         private static void AddDependencyGroups(IEnumerable<LibraryDependency> dependencies, NuGetFramework framework, PackageBuilder builder)
@@ -601,6 +704,11 @@ namespace NuGet.Commands
                 builder.Version = new NuGetVersion($"{version}-{_packArgs.Suffix}");
             }
 
+            if (_packArgs.Serviceable)
+            {
+                builder.Serviceable = true;
+            }
+
             if (_packArgs.MinClientVersion != null)
             {
                 builder.MinClientVersion = _packArgs.MinClientVersion;
@@ -714,6 +822,13 @@ namespace NuGet.Commands
 
         private string ResolvePath(IPackageFile packageFile)
         {
+            var basePath = string.IsNullOrEmpty(_packArgs.BasePath) ? _packArgs.CurrentDirectory : _packArgs.BasePath;
+
+            return ResolvePath(packageFile, basePath);
+        }
+
+        private static string ResolvePath(IPackageFile packageFile, string basePath)
+        {
             var physicalPackageFile = packageFile as PhysicalPackageFile;
 
             // For PhysicalPackageFiles, we want to filter by SourcePaths, the path on disk. The Path value maps to the TargetPath
@@ -723,14 +838,14 @@ namespace NuGet.Commands
             }
 
             var path = physicalPackageFile.SourcePath;
-            // Make sure that the basepath has a directory separator
 
-            int index = path.IndexOf(PathUtility.EnsureTrailingSlash(_packArgs.BasePath), StringComparison.OrdinalIgnoreCase);
+            // Make sure that the basepath has a directory separator
+            int index = path.IndexOf(PathUtility.EnsureTrailingSlash(basePath), StringComparison.OrdinalIgnoreCase);
             if (index != -1)
             {
                 // Since wildcards are going to be relative to the base path, remove the BasePath portion of the file's source path.
                 // Also remove any leading path separator slashes
-                path = path.Substring(index + _packArgs.BasePath.Length).TrimStart(Path.DirectorySeparatorChar);
+                path = path.Substring(index + basePath.Length).TrimStart(Path.DirectorySeparatorChar);
             }
 
             return path;
@@ -824,7 +939,24 @@ namespace NuGet.Commands
             }
             else
             {
-                version = String.IsNullOrEmpty(_packArgs.Version) ? builder.Version.ToNormalizedString() : _packArgs.Version;
+                if (String.IsNullOrEmpty(_packArgs.Version))
+                {
+                    if (builder.Version == null)
+                    {
+                        // If the version is null, the user will get an error later saying that a version
+                        // is required. Specifying a version here just keeps it from throwing until
+                        // it gets to the better error message. It won't actually get used.
+                        version = "1.0.0";
+                    }
+                    else
+                    {
+                        version = builder.Version.ToNormalizedString();
+                    }
+                }
+                else
+                {
+                    version = _packArgs.Version;
+                }
             }
 
             // Output file is {id}.{version}
@@ -853,6 +985,13 @@ namespace NuGet.Commands
                 if (string.IsNullOrEmpty(packArgs.OutputDirectory))
                 {
                     packArgs.OutputDirectory = packArgs.CurrentDirectory;
+                }
+                packArgs.OutputDirectory = Path.GetFullPath(packArgs.OutputDirectory);
+
+                if (!string.IsNullOrEmpty(packArgs.BasePath))
+                {
+                    // Make sure base path is not relative before changing the current directory
+                    packArgs.BasePath = Path.GetFullPath(packArgs.BasePath);
                 }
 
                 packArgs.CurrentDirectory = directory;

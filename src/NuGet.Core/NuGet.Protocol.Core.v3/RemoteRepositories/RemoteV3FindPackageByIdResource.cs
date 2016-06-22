@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
+using NuGet.Packaging.Core;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 
@@ -49,10 +50,20 @@ namespace NuGet.Protocol
             return result.Select(item => item.Identity.Version);
         }
 
+        public override async Task<PackageIdentity> GetOriginalIdentityAsync(string id, NuGetVersion version, CancellationToken cancellationToken)
+        {
+            var packageInfo = await GetPackageInfoAsync(id, version, cancellationToken);
+            if (packageInfo == null)
+            {
+                return null;
+            }
+
+            return packageInfo.Identity;
+        }
+
         public override async Task<FindPackageByIdDependencyInfo> GetDependencyInfoAsync(string id, NuGetVersion version, CancellationToken cancellationToken)
         {
-            var packageInfos = await EnsurePackagesAsync(id, cancellationToken);
-            var packageInfo = packageInfos.FirstOrDefault(p => p.Identity.Version == version);
+            var packageInfo = await GetPackageInfoAsync(id, version, cancellationToken);
             if (packageInfo == null)
             {
                 return null;
@@ -68,14 +79,19 @@ namespace NuGet.Protocol
 
         public override async Task<Stream> GetNupkgStreamAsync(string id, NuGetVersion version, CancellationToken cancellationToken)
         {
-            var packageInfos = await EnsurePackagesAsync(id, cancellationToken);
-            var packageInfo = packageInfos.FirstOrDefault(p => p.Identity.Version == version);
+            var packageInfo = await GetPackageInfoAsync(id, version, cancellationToken);
             if (packageInfo == null)
             {
                 return null;
             }
 
             return await OpenNupkgStreamAsync(packageInfo, cancellationToken);
+        }
+
+        private async Task<RemoteSourceDependencyInfo> GetPackageInfoAsync(string id, NuGetVersion version, CancellationToken cancellationToken)
+        {
+            var packageInfos = await EnsurePackagesAsync(id, cancellationToken);
+            return packageInfos.FirstOrDefault(p => p.Identity.Version == version);
         }
 
         private Task<IEnumerable<RemoteSourceDependencyInfo>> EnsurePackagesAsync(string id, CancellationToken cancellationToken)
@@ -159,13 +175,15 @@ namespace NuGet.Protocol
                 try
                 {
                     using (var data = await _httpSource.GetAsync(
-                        package.ContentUri,
-                        "nupkg_" + package.Identity.Id + "." + package.Identity.Version.ToNormalizedString(),
-                        CreateCacheContext(retry),
+                        new HttpSourceCachedRequest(
+                            package.ContentUri,
+                            "nupkg_" + package.Identity.Id + "." + package.Identity.Version.ToNormalizedString(),
+                            CreateCacheContext(retry))
+                        {
+                            EnsureValidContents = stream => HttpStreamValidation.ValidateNupkg(package.ContentUri, stream)
+                        },
                         Logger,
-                        ignoreNotFounds: false,
-                        ensureValidContents: stream => HttpStreamValidation.ValidateNupkg(package.ContentUri, stream),
-                        cancellationToken: cancellationToken))
+                        cancellationToken))
                     {
                         return new NupkgEntry
                         {

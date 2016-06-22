@@ -25,7 +25,13 @@ namespace NuGet.Packaging
 
         private static int GetMaxVersionFromMetadata(ManifestMetadata metadata)
         {
-            // Important: check for version 5 before version 4
+            // Important: always add newer version checks at the top
+            
+            if (metadata.PackageTypes != null && metadata.PackageTypes.Any())
+            {
+                return PackageTypeVersion;
+            }
+
             bool referencesHasTargetFramework =
               metadata.PackageAssemblyReferences != null &&
               metadata.PackageAssemblyReferences.Any(r => r.TargetFramework != null && r.TargetFramework.IsSpecificFramework);
@@ -46,11 +52,6 @@ namespace NuGet.Packaging
             if (metadata.Version != null && metadata.Version.IsPrerelease)
             {
                 return SemverVersion;
-            }
-
-            if (metadata.PackageTypes != null && metadata.PackageTypes.Any())
-            {
-                return PackageTypeVersion;
             }
 
             return DefaultVersion;

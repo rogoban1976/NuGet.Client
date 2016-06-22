@@ -121,6 +121,9 @@ namespace NuGet.Packaging
                 case "tags":
                     manifestMetadata.Tags = value;
                     break;
+                case "serviceable":
+                    manifestMetadata.Serviceable = XmlConvert.ToBoolean(value);
+                    break;
                 case "dependencies":
                     manifestMetadata.DependencyGroups = ReadDependencyGroups(element);
                     break;
@@ -314,7 +317,7 @@ namespace NuGet.Packaging
                 files.AddRange(srcElement.Value.Trim(';').Split(';').Select(s => 
                     new ManifestFile
                     {
-                        Source = s.SafeTrim().TrimStart(slashes),
+                        Source = s.SafeTrim(),
                         Target = target,
                         Exclude = exclude
                     }));

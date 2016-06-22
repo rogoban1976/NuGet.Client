@@ -71,6 +71,8 @@ namespace NuGet.Protocol
             HttpResponseMessage response = null;
             ICredentials promptCredentials = null;
 
+            var configuration = request.GetOrCreateConfiguration();
+
             // Authorizing may take multiple attempts
             while (true)
             {
@@ -91,9 +93,14 @@ namespace NuGet.Protocol
                 }
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                    response.StatusCode == HttpStatusCode.Forbidden)
+                    (configuration.PromptOn403 && response.StatusCode == HttpStatusCode.Forbidden))
                 {
-                    promptCredentials = await AcquireCredentialsAsync(response.StatusCode, beforeLockVersion, cancellationToken);
+                    promptCredentials = await AcquireCredentialsAsync(
+                        response.StatusCode,
+                        beforeLockVersion,
+                        configuration.Logger,
+                        cancellationToken);
+
                     if (promptCredentials == null)
                     {
                         return response;
@@ -111,12 +118,14 @@ namespace NuGet.Protocol
             }
         }
 
-        private async Task<ICredentials> AcquireCredentialsAsync(HttpStatusCode statusCode, Guid credentialsVersion, CancellationToken cancellationToken)
+        private async Task<ICredentials> AcquireCredentialsAsync(HttpStatusCode statusCode, Guid credentialsVersion, ILogger log, CancellationToken cancellationToken)
         {
             try
             {
                 // Only one request may prompt and attempt to auth at a time
                 await _httpClientLock.WaitAsync();
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Auth may have happened on another thread, if so just continue
                 if (credentialsVersion != _credentials.Version)
@@ -156,13 +165,17 @@ namespace NuGet.Protocol
                 var promptCredentials = await PromptForCredentialsAsync(
                     type,
                     message,
+                    log,
                     cancellationToken);
 
                 if (promptCredentials == null)
                 {
-                    // null means cancelled by user
+                    // null means cancelled by user or error occured
                     // block subsequent attempts to annoy user with prompts
                     authState.IsBlocked = true;
+
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     return null;
                 }
 
@@ -193,6 +206,7 @@ namespace NuGet.Protocol
         private async Task<ICredentials> PromptForCredentialsAsync(
             CredentialRequestType type,
             string message,
+            ILogger log,
             CancellationToken token)
         {
             ICredentials promptCredentials;
@@ -217,6 +231,12 @@ namespace NuGet.Protocol
             catch (OperationCanceledException)
             {
                 // A valid response for VS dialog when user hits cancel button
+                promptCredentials = null;
+            }
+            catch (Exception e)
+            {
+                // Fatal credential service failure
+                log.LogError(ExceptionUtilities.DisplayMessage(e));
                 promptCredentials = null;
             }
             finally

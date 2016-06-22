@@ -53,7 +53,7 @@ namespace NuGet.Packaging
         /// Added packageTypes element under metadata.
         /// </summary>
         internal const string SchemaVersionV7 = "http://schemas.microsoft.com/packaging/2016/04/nuspec.xsd";
-
+        
         private static readonly string[] VersionToSchemaMappings = new[] {
             SchemaVersionV1,
             SchemaVersionV2,

@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Dnx.Runtime.Common.CommandLine;
-using Microsoft.Extensions.PlatformAbstractions;
 using NuGet.Commands;
 using NuGet.Configuration;
 using NuGet.ProjectModel;
@@ -108,7 +109,7 @@ namespace NuGet.CommandLine.XPlat
                             GlobalPackagesFolder = packagesDirectory.HasValue() ? packagesDirectory.Value() : null,
                             Inputs = new List<string>(argRoot.Values),
                             Log = log,
-                            MachineWideSettings = new CommandLineXPlatMachineWideSetting(),
+                            MachineWideSettings = new XPlatMachineWideSetting(),
                             RequestProviders = providers,
                             Sources = sources.Values,
                             FallbackSources = fallBack.Values,
@@ -117,10 +118,15 @@ namespace NuGet.CommandLine.XPlat
 
                         if (inferRuntimes.HasValue())
                         {
-                            var defaultRuntimes = RequestRuntimeUtility.GetDefaultRestoreRuntimes(
-                                PlatformServices.Default.Runtime.OperatingSystem,
-                                PlatformServices.Default.Runtime.GetRuntimeOsName());
+                            var runtimeOSname = PlatformApis.GetRuntimeOsName();
+                            var os = PlatformApis.GetOSName();
+                            var defaultRuntimes = RequestRuntimeUtility.GetDefaultRestoreRuntimes(os, runtimeOSname);
                             restoreContext.FallbackRuntimes.UnionWith(defaultRuntimes);
+                        }
+
+                        if (restoreContext.DisableParallel)
+                        {
+                            HttpSourceResourceProvider.Throttle = SemaphoreSlimThrottle.CreateBinarySemaphore();
                         }
 
                         var restoreSummaries = await RestoreRunner.Run(restoreContext);

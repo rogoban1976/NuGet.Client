@@ -505,6 +505,47 @@ namespace NuGet.Packaging.Test
         }
 
         [Fact]
+        public void CreatePackageWithServiceableElement()
+        {
+            // Arrange
+            PackageBuilder builder = new PackageBuilder()
+            {
+                Id = "A",
+                Version = NuGetVersion.Parse("1.0"),
+                Description = "Description",
+                Authors = { "testAuthor" },
+                Serviceable = true,
+                Files =
+                {
+                    CreatePackageFile("content" + Path.DirectorySeparatorChar + "winrt53" + Path.DirectorySeparatorChar + "one.txt")
+                }
+            };
+
+            using (var ms = new MemoryStream())
+            {
+                builder.Save(ms);
+
+                ms.Seek(0, SeekOrigin.Begin);
+
+                var manifestStream = GetManifestStream(ms);
+
+                // Assert
+                Assert.Equal(@"<?xml version=""1.0"" encoding=""utf-8""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0.0</version>
+    <authors>testAuthor</authors>
+    <owners>testAuthor</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Description</description>
+    <serviceable>true</serviceable>
+  </metadata>
+</package>", manifestStream.ReadToEnd());
+            }
+        }
+
+        [Fact]
         public void CreatePackageWithPackageTypes()
         {
             // Arrange
@@ -1742,6 +1783,7 @@ Description is required.");
     <language>en-US</language>
     <licenseUrl>http://somesite/somelicense.txt</licenseUrl>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <serviceable>true</serviceable>
     <copyright>2010</copyright>
     <packageTypes>
         <packageType name=""foo"" />
@@ -1769,7 +1811,7 @@ Description is required.");
             Assert.Equal("This is the Description (With, Comma-Separated, Words, in Parentheses).", builder.Description);
             Assert.Equal(new Uri("http://somesite/somelicense.txt"), builder.LicenseUrl);
             Assert.True(builder.RequireLicenseAcceptance);
-
+            Assert.True(builder.Serviceable);
             Assert.Equal(2, builder.PackageTypes.Count);
             Assert.Equal("foo", builder.PackageTypes.ElementAt(0).Name);
             Assert.Equal(new Version(0, 0), builder.PackageTypes.ElementAt(0).Version);
@@ -2427,6 +2469,51 @@ Enabling license acceptance requires a license url.");
                     Assert.EndsWith(@".psmdcp", files[7]);
 
                     Assert.Equal(@"test.nuspec", files[8]);
+                }
+            }
+        }
+
+        [Fact]
+        public void PackageBuilderWorksWithFileNameWithoutAnExtension()
+        {
+            // Arrange
+            var fileNames = new[] {
+                        @"myfile",
+                    };
+
+            // Act
+            var builder = new PackageBuilder { Id = "test", Version = NuGetVersion.Parse("1.0"), Description = "test" };
+            builder.Authors.Add("test");
+            foreach (var name in fileNames)
+            {
+                builder.Files.Add(CreatePackageFile(name.Replace('\\', Path.DirectorySeparatorChar)));
+            }
+
+            // Assert
+            using (MemoryStream stream = new MemoryStream())
+            {
+                builder.Save(stream);
+
+                using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
+                {
+                    var files = archive.GetFiles().OrderBy(s => s).ToArray();
+
+                    // Linux sorts the first two in different order than Windows
+                    Assert.Contains<string>(@"[Content_Types].xml", files);
+                    Assert.Contains<string>(@"_rels/.rels", files);
+                    Assert.Equal(@"myfile", files[2]);
+
+                    Assert.StartsWith(@"package/services/metadata/core-properties/", files[3]);
+                    Assert.EndsWith(@".psmdcp", files[3]);
+
+                    Assert.Equal(@"test.nuspec", files[4]);
+
+                    var contentTypesReader
+                        = new StreamReader(archive.Entries.Single(file => file.FullName == @"[Content_Types].xml").Open());
+                    var contentTypesXml = XDocument.Parse(contentTypesReader.ReadToEnd());
+                    var node = contentTypesXml.Descendants().Single(e => e.Name.LocalName == "Override");
+
+                    Assert.StartsWith(@"<Override PartName=""/myfile"" ContentType=""application/octet""", node.ToString());
                 }
             }
         }
