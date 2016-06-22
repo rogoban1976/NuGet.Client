@@ -11,6 +11,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
+using NuGet.Packaging.Core;
 using NuGet.RuntimeModel;
 using NuGet.Versioning;
 
@@ -18,6 +19,10 @@ namespace NuGet.ProjectModel
 {
     public class JsonPackageSpecReader
     {
+        public static readonly string PackOptions = "packOptions";
+        public static readonly string PackageType = "packageType";
+        public static readonly string Files = "files";
+
         /// <summary>
         /// Load and parse a project.json file
         /// </summary>
@@ -27,17 +32,17 @@ namespace NuGet.ProjectModel
         {
             using (var stream = new FileStream(packageSpecPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                return GetPackageSpec(stream, name, packageSpecPath);
+                return GetPackageSpec(stream, name, packageSpecPath, null);
             }
         }
 
         public static PackageSpec GetPackageSpec(string json, string name, string packageSpecPath)
         {
             var ms = new MemoryStream(Encoding.UTF8.GetBytes(json));
-            return GetPackageSpec(ms, name, packageSpecPath);
+            return GetPackageSpec(ms, name, packageSpecPath, null);
         }
 
-        public static PackageSpec GetPackageSpec(Stream stream, string name, string packageSpecPath)
+        public static PackageSpec GetPackageSpec(Stream stream, string name, string packageSpecPath, string snapshotValue)
         {
             // Load the raw JSON into the package spec object
             var reader = new JsonTextReader(new StreamReader(stream));
@@ -68,12 +73,16 @@ namespace NuGet.ProjectModel
             if (version == null)
             {
                 packageSpec.Version = new NuGetVersion("1.0.0");
+                packageSpec.IsDefaultVersion = true;
+                packageSpec.HasVersionSnapshot = false;
             }
             else
             {
                 try
                 {
-                    packageSpec.Version = SpecifySnapshot(version.Value<string>(), snapshotValue: string.Empty);
+                    bool hasVersionSnapshot;
+                    packageSpec.Version = SpecifySnapshot(version.Value<string>(), snapshotValue, out hasVersionSnapshot);
+                    packageSpec.HasVersionSnapshot = hasVersionSnapshot;
                 }
                 catch (Exception ex)
                 {
@@ -105,6 +114,15 @@ namespace NuGet.ProjectModel
             packageSpec.Language = rawPackageSpec.GetValue<string>("language");
             packageSpec.Summary = rawPackageSpec.GetValue<string>("summary");
             packageSpec.ReleaseNotes = rawPackageSpec.GetValue<string>("releaseNotes");
+
+            var buildOptions = rawPackageSpec["buildOptions"] as JObject;
+            if (buildOptions != null)
+            {
+                packageSpec.BuildOptions = new BuildOptions()
+                {
+                    OutputName = buildOptions.GetValue<string>("outputName")
+                };
+            }
 
             var requireLicenseAcceptance = rawPackageSpec["requireLicenseAcceptance"];
 
@@ -157,14 +175,17 @@ namespace NuGet.ProjectModel
 
             packageSpec.Tools = ReadTools(packageSpec, rawPackageSpec).ToList();
 
+            packageSpec.PackOptions = GetPackOptions(packageSpec, rawPackageSpec);
+
             // Read the runtime graph
             packageSpec.RuntimeGraph = JsonRuntimeFormat.ReadRuntimeGraph(rawPackageSpec);
 
             return packageSpec;
         }
 
-        private static NuGetVersion SpecifySnapshot(string version, string snapshotValue)
+        private static NuGetVersion SpecifySnapshot(string version, string snapshotValue, out bool hasVersionSnapshot)
         {
+            hasVersionSnapshot = false;
             if (version.EndsWith("-*"))
             {
                 if (string.IsNullOrEmpty(snapshotValue))
@@ -174,10 +195,97 @@ namespace NuGet.ProjectModel
                 else
                 {
                     version = version.Substring(0, version.Length - 1) + snapshotValue;
+                    hasVersionSnapshot = true;
                 }
             }
 
             return new NuGetVersion(version);
+        }
+
+        private static PackOptions GetPackOptions(PackageSpec packageSpec, JObject rawPackageSpec)
+        {
+            var rawPackOptions = rawPackageSpec.Value<JToken>(PackOptions) as JObject;
+            if (rawPackOptions == null)
+            {
+                return new PackOptions
+                {
+                    PackageType = new PackageType[0]
+                };
+            }
+
+            var rawPackageType = rawPackOptions[PackageType];
+            if (rawPackageType != null &&
+                rawPackageType.Type != JTokenType.String &&
+                (rawPackageType.Type != JTokenType.Array || // The array must be all strings.
+                 rawPackageType.Type == JTokenType.Array && rawPackageType.Any(t => t.Type != JTokenType.String)) &&
+                rawPackageType.Type != JTokenType.Null)
+            {
+                throw FileFormatException.Create(
+                    string.Format(
+                        CultureInfo.CurrentCulture,
+                        Strings.InvalidPackageType,
+                        PackageSpec.PackageSpecFileName),
+                    rawPackageType,
+                    packageSpec.FilePath);
+            }
+
+            IEnumerable<string> packageTypeNames;
+            if (!TryGetStringEnumerableFromJArray(rawPackageType, out packageTypeNames))
+            {
+                packageTypeNames = Enumerable.Empty<string>();
+            }
+
+            Dictionary<string, IncludeExcludeFiles> mappings = null;
+            IncludeExcludeFiles files = null;
+            var rawFiles = rawPackOptions[Files] as JObject;
+            if (rawFiles != null)
+            {
+                files = new IncludeExcludeFiles();
+                if (!files.HandleIncludeExcludeFiles(rawFiles))
+                {
+                    files = null;
+                }
+
+                var rawMappings = rawFiles["mappings"] as JObject;
+
+                if (rawMappings != null)
+                {
+                    mappings = new Dictionary<string, IncludeExcludeFiles>();
+                    foreach (var pair in rawMappings)
+                    {
+                        var key = pair.Key;
+                        var value = pair.Value;
+                        if (value.Type == JTokenType.String ||
+                            value.Type == JTokenType.Array)
+                        {
+                            IEnumerable<string> includeFiles;
+                            TryGetStringEnumerableFromJArray(value, out includeFiles);
+                            var includeExcludeFiles = new IncludeExcludeFiles()
+                            {
+                                Include = includeFiles?.ToList()
+                            };
+                            mappings.Add(key, includeExcludeFiles);
+                        }
+                        else if (value.Type == JTokenType.Object)
+                        {
+                            var includeExcludeFiles = new IncludeExcludeFiles();
+                            if (includeExcludeFiles.HandleIncludeExcludeFiles(value as JObject))
+                            {
+                                mappings.Add(key, includeExcludeFiles);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return new PackOptions
+            {
+                PackageType = packageTypeNames
+                    .Select(name => new PackageType(name, Packaging.Core.PackageType.EmptyVersion))
+                    .ToList(),
+                IncludeExcludeFiles = files,
+                Mappings = mappings
+            };
         }
 
         private static void PopulateDependencies(
@@ -217,7 +325,7 @@ namespace NuGet.ProjectModel
                     // Dependencies should allow everything but framework references.
                     var targetFlagsValue = isGacOrFrameworkReference
                                                     ? LibraryDependencyTarget.Reference
-                                                    : ~LibraryDependencyTarget.Reference;
+                                                    : LibraryDependencyTarget.All & ~LibraryDependencyTarget.Reference;
 
                     string dependencyVersionValue = null;
                     var dependencyVersionToken = dependencyValue;
@@ -462,7 +570,7 @@ namespace NuGet.ProjectModel
             return isValid;
         }
 
-        private static bool TryGetStringEnumerableFromJArray(JToken token, out IEnumerable<string> result)
+        internal static bool TryGetStringEnumerableFromJArray(JToken token, out IEnumerable<string> result)
         {
             IEnumerable<string> values;
             if (token == null)
@@ -525,13 +633,6 @@ namespace NuGet.ProjectModel
         private static bool BuildTargetFrameworkNode(PackageSpec packageSpec, KeyValuePair<string, JToken> targetFramework)
         {
             var frameworkName = GetFramework(targetFramework.Key);
-
-            // If it's not unsupported then keep it
-            if (frameworkName == NuGetFramework.UnsupportedFramework)
-            {
-                // REVIEW: Should we skip unsupported target frameworks
-                return false;
-            }
 
             var properties = targetFramework.Value.Value<JObject>();
 

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using NuGet.Test.Utility;
@@ -47,6 +48,58 @@ namespace NuGet.CommandLine.Test
             {
                 Assert.DoesNotContain(supportedIndicator, result.Item3);
             }
+        }
+
+        [Fact]
+        public void ListCommand_WithNugetShowStack_ShowsStack()
+        {
+            // Arrange
+            var nugetexe = Util.GetNuGetExePath();
+            var hostName = Guid.NewGuid().ToString();
+            var expected = "System.AggregateException: One or more errors occurred. ---> " + 
+                           "System.Net.WebException: The remote name could not be resolved: " +
+                           $"'{hostName}'";
+            var args = new[] { "list", "-Source", "https://" + hostName + "/" };
+
+            // Act
+            var result = CommandRunner.Run(
+                nugetexe,
+                Directory.GetCurrentDirectory(),
+                string.Join(" ", args),
+                waitForExit: true,
+                environmentVariables: new Dictionary<string, string>
+                {
+                    { "NUGET_SHOW_STACK", "true" }
+                });
+
+            // Assert
+            Assert.Contains(expected, result.Item3);
+            Assert.NotEqual(0, result.Item1);
+        }
+
+        [Fact]
+        public void ListCommand_WithoutNugetShowStack_HidesStack()
+        {
+            // Arrange
+            var nugetexe = Util.GetNuGetExePath();
+            var hostName = Guid.NewGuid().ToString();
+            var expected = $"The remote name could not be resolved: '{hostName}'";
+            var args = new[] { "list", "-Source", "https://" + hostName + "/" };
+
+            // Act
+            var result = CommandRunner.Run(
+                nugetexe,
+                Directory.GetCurrentDirectory(),
+                string.Join(" ", args),
+                waitForExit: true,
+                environmentVariables: new Dictionary<string, string>
+                {
+                    { "NUGET_SHOW_STACK", "false" }
+                });
+
+            // Assert
+            Assert.Contains(expected, result.Item3);
+            Assert.NotEqual(0, result.Item1);
         }
 
         [Fact]
@@ -100,11 +153,11 @@ namespace NuGet.CommandLine.Test
                 var output = r.Item2;
                 string[] lines = output.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
 
-                Assert.Equal(4, lines.Length);
-                Assert.Equal("testPackage1", lines[0]);
-                Assert.Equal(" 1.1.0", lines[1]);
-                Assert.Equal(" desc of testPackage1 1.1.0", lines[2]);
-                Assert.Equal(" License url: http://kaka", lines[3]);
+                Assert.Equal(5, lines.Length);
+                Assert.Equal("testPackage1", lines[1]);
+                Assert.Equal(" 1.1.0", lines[2]);
+                Assert.Equal(" desc of testPackage1 1.1.0", lines[3]);
+                Assert.Equal(" License url: http://kaka", lines[4]);
             }
         }
 

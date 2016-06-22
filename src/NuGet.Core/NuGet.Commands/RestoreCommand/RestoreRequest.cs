@@ -4,14 +4,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NuGet.Common;
 using NuGet.Configuration;
 using NuGet.Frameworks;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Packaging.PackageExtraction;
 using NuGet.ProjectModel;
+using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.Commands
 {
@@ -27,8 +27,24 @@ namespace NuGet.Commands
             ILogger log)
             : this(
                   project,
+                  sources,
+                  packagesDirectory,
+                  new List<string>(),
+                  log)
+        {
+        }
+
+        public RestoreRequest(
+            PackageSpec project,
+            IEnumerable<PackageSource> sources,
+            string packagesDirectory,
+            IEnumerable<string> fallbackPackageFolders,
+            ILogger log)
+            : this(
+                  project,
                   sources.Select(source => Repository.Factory.GetCoreV3(source.Source)),
                   packagesDirectory,
+                  fallbackPackageFolders,
                   log)
         {
         }
@@ -37,9 +53,11 @@ namespace NuGet.Commands
             PackageSpec project,
             IEnumerable<SourceRepository> sources,
             string packagesDirectory,
+            IEnumerable<string> fallbackPackageFolders,
             ILogger log)
             : this(project,
                   RestoreCommandProviders.Create(packagesDirectory,
+                    fallbackPackageFolders,
                     sources,
                     new SourceCacheContext(),
                     log),

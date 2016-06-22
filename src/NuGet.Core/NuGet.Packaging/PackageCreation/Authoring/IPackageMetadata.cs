@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using NuGet.Packaging.Core;
 using NuGet.Versioning;
 
 namespace NuGet.Packaging
@@ -25,6 +26,7 @@ namespace NuGet.Packaging
         string ReleaseNotes { get; }
         string Language { get; }
         string Tags { get; }
+        bool Serviceable { get; }
         string Copyright { get; }
 
         /// <summary>
@@ -47,6 +49,8 @@ namespace NuGet.Packaging
         /// <summary>
         /// Returns sets of Content Files specified in the manifest.
         /// </summary>
-        ICollection<ManifestContentFiles> ContentFiles { get; }
+        IEnumerable<ManifestContentFiles> ContentFiles { get; }
+
+        IEnumerable<PackageType> PackageTypes { get; }
     }
 }

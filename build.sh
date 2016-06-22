@@ -13,11 +13,11 @@ RESULTCODE=0
 # Download the CLI install script to cli
 echo "Installing dotnet CLI"
 mkdir -p cli
-curl -o cli/install.sh https://raw.githubusercontent.com/dotnet/cli/rel/1.0.0/scripts/obtain/install.sh
+curl -o cli/dotnet-install.sh https://raw.githubusercontent.com/dotnet/cli/rel/1.0.0/scripts/obtain/dotnet-install.sh
 
 # Run install.sh
-chmod +x cli/install.sh
-cli/install.sh -i cli -c beta
+chmod +x cli/dotnet-install.sh
+cli/dotnet-install.sh -i cli -c preview -v 1.0.0-preview2-003030
 
 # Display current version
 DOTNET="$(pwd)/cli/dotnet"
@@ -40,25 +40,23 @@ then
 fi
 
 # restore packages
-$DOTNET restore src/NuGet.Core test/NuGet.Core.Tests --verbosity minimal --infer-runtimes
+echo "$DOTNET restore src/NuGet.Core test/NuGet.Core.Tests --verbosity minimal"
+$DOTNET restore src/NuGet.Core test/NuGet.Core.Tests --verbosity minimal
 if [ $? -ne 0 ]; then
 	echo "Restore failed!!"
 	exit 1
 fi
-
-# build NuGet.Shared to work around a dotnet build issue
-$DOTNET build src/NuGet.Core/NuGet.Shared --framework netstandard1.5 --configuration release
 
 # run tests
 for testProject in `find test/NuGet.Core.Tests -type f -name project.json`
 do
 	testDir="$(pwd)/$(dirname $testProject)"
 
-	if grep -q "netstandardapp1.5" "$testProject"; then
+	if grep -q "netcoreapp1.0" "$testProject"; then
 		pushd $testDir
 
-		echo "$DOTNET $testDir --configuration release --framework netstandardapp1.5"
-		$DOTNET test $testDir --configuration release --framework netstandardapp1.5
+		echo "$DOTNET test $testDir --configuration release --framework netcoreapp1.0"
+		$DOTNET test $testDir --configuration release --framework netcoreapp1.0
 
 		if [ $? -ne 0 ]; then
 			echo "$testDir FAILED on CoreCLR"

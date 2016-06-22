@@ -5,10 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NuGet.Client;
+using NuGet.Common;
 using NuGet.DependencyResolver;
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
-using NuGet.Logging;
 using NuGet.RuntimeModel;
 
 namespace NuGet.Commands
@@ -141,12 +141,6 @@ namespace NuGet.Commands
                             }
 
                             return;
-                        }
-
-                        if (!string.Equals(node.Item.Data.Match.Library.Name, node.Key.Name, StringComparison.Ordinal))
-                        {
-                            // Fix casing of the library name to be installed
-                            node.Item.Data.Match.Library.Name = node.Key.Name;
                         }
 
                         // Don't add rejected nodes since we only want to write reduced nodes

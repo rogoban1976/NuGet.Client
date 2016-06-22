@@ -11,7 +11,12 @@ namespace NuGet.Frameworks
     /// <summary>
     /// Reduces a list of frameworks into the smallest set of frameworks required.
     /// </summary>
-    public class FrameworkReducer
+#if NUGET_FRAMEWORKS_INTERNAL
+    internal
+#else
+    public
+#endif
+    class FrameworkReducer
     {
         private readonly IFrameworkNameProvider _mappings;
         private readonly IFrameworkCompatibilityProvider _compat;
@@ -125,8 +130,9 @@ namespace NuGet.Frameworks
                     }
                 }
 
-                // Packages based framework reduce
+                // Packages based framework reduce, only if the project is not packages based
                 if (reduced.Count() > 1
+                    && !framework.IsPackageBased
                     && reduced.Any(f => f.IsPackageBased)
                     && reduced.Any(f => !f.IsPackageBased))
                 {

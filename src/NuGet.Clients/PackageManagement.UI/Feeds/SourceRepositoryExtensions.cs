@@ -45,7 +45,7 @@ namespace NuGet.PackageManagement.UI
                 searchToken.SearchFilter,
                 searchToken.StartIndex,
                 pageSize + 1,
-                Logging.NullLogger.Instance,
+                Common.NullLogger.Instance,
                 cancellationToken);
 
             var items = searchResults?.ToArray() ?? new IPackageSearchMetadata[] { };
@@ -89,7 +89,7 @@ namespace NuGet.PackageManagement.UI
                 identity.Id,
                 includePrerelease: true,
                 includeUnlisted: false,
-                log: Logging.NullLogger.Instance,
+                log: Common.NullLogger.Instance,
                 token: cancellationToken);
 
             if (packages?.FirstOrDefault() == null)
@@ -112,7 +112,7 @@ namespace NuGet.PackageManagement.UI
                 identity.Id,
                 includePrerelease: true,
                 includeUnlisted: true,
-                log: Logging.NullLogger.Instance,
+                log: Common.NullLogger.Instance,
                 token: cancellationToken);
 
             var packageMetadata = localPackages?.FirstOrDefault(p => p.Identity.Version == identity.Version);
@@ -126,17 +126,20 @@ namespace NuGet.PackageManagement.UI
         }
 
         public static async Task<IPackageSearchMetadata> GetLatestPackageMetadataAsync(
-            this SourceRepository sourceRepository, string packageId, bool includePrerelease, CancellationToken cancellationToken)
+            this SourceRepository sourceRepository, string packageId, bool includePrerelease, CancellationToken cancellationToken, VersionRange allowedVersions)
         {
             var metadataResource = await sourceRepository.GetResourceAsync<PackageMetadataResource>(cancellationToken);
             var packages = await metadataResource?.GetMetadataAsync(
                 packageId,
                 includePrerelease,
                 false,
-                Logging.NullLogger.Instance,
+                Common.NullLogger.Instance,
                 cancellationToken);
 
-            var highest = packages?
+            // filter packages based on allowed versions
+            var updatedPackages = packages.Where(p => allowedVersions.Satisfies(p.Identity.Version));
+
+            var highest = updatedPackages
                 .OrderByDescending(e => e.Identity.Version, VersionComparer.VersionRelease)
                 .FirstOrDefault();
 
@@ -151,7 +154,7 @@ namespace NuGet.PackageManagement.UI
                 packageId,
                 includePrerelease,
                 includeUnlisted,
-                Logging.NullLogger.Instance,
+                Common.NullLogger.Instance,
                 cancellationToken);
             return packages;
         }
@@ -161,7 +164,10 @@ namespace NuGet.PackageManagement.UI
             return packages?
                 .Where(v => includePrerelease || !v.Identity.Version.IsPrerelease)
                 .OrderByDescending(m => m.Identity.Version, VersionComparer.VersionRelease)
-                .Select(m => new VersionInfo(m.Identity.Version, m.DownloadCount));
+                .Select(m => new VersionInfo(m.Identity.Version, m.DownloadCount)
+                {
+                    PackageSearchMetadata = m
+                });
         }
 
         public static async Task<IEnumerable<string>> IdStartsWithAsync(
@@ -171,7 +177,7 @@ namespace NuGet.PackageManagement.UI
             var packageIds = await autoCompleteResource?.IdStartsWith(
                 packageIdPrefix,
                 includePrerelease: includePrerelease,
-                log: Logging.NullLogger.Instance,
+                log: Common.NullLogger.Instance,
                 token: cancellationToken);
 
             return packageIds ?? Enumerable.Empty<string>();
@@ -185,7 +191,7 @@ namespace NuGet.PackageManagement.UI
                 packageId,
                 versionPrefix,
                 includePrerelease: includePrerelease,
-                log: Logging.NullLogger.Instance,
+                log: Common.NullLogger.Instance,
                 token: cancellationToken);
 
             return versions ?? Enumerable.Empty<NuGetVersion>();

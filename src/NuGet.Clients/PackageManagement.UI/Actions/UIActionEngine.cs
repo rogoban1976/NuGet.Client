@@ -11,6 +11,7 @@ using System.Windows;
 using NuGet.Packaging.Core;
 using NuGet.ProjectManagement;
 using NuGet.Protocol.Core.Types;
+using System.Globalization;
 
 namespace NuGet.PackageManagement.UI
 {
@@ -41,6 +42,9 @@ namespace NuGet.PackageManagement.UI
             DependencyObject windowOwner,
             CancellationToken token)
         {
+            var stopWatch = new Stopwatch();
+            stopWatch.Start();
+
             await PerformActionImplAsync(
                 uiService,
                 () =>
@@ -76,6 +80,9 @@ namespace NuGet.PackageManagement.UI
                 },
                 windowOwner,
                 token);
+
+            stopWatch.Stop();
+            uiService.ProgressWindow.Log(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Operation_TotalTime, stopWatch.Elapsed));
         }
 
         /// <summary>
@@ -88,6 +95,9 @@ namespace NuGet.PackageManagement.UI
             DependencyObject windowOwner,
             CancellationToken token)
         {
+            var stopWatch = new Stopwatch();
+            stopWatch.Start();
+
             await PerformActionImplAsync(
                 uiService,
                 () =>
@@ -110,6 +120,9 @@ namespace NuGet.PackageManagement.UI
                 },
                 windowOwner,
                 token);
+
+            stopWatch.Stop();
+            uiService.ProgressWindow.Log(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Operation_TotalTime, stopWatch.Elapsed));
         }
 
         /// <summary>
@@ -125,6 +138,9 @@ namespace NuGet.PackageManagement.UI
             CancellationToken token)
         {
             var resolvedActions = new List<ResolvedAction>();
+
+            // Keep a single gather cache across projects
+            var gatherCache = new GatherCache();
 
             foreach (var project in uiService.Projects)
             {
@@ -150,7 +166,9 @@ namespace NuGet.PackageManagement.UI
                         uiService.DependencyBehavior,
                         includePrelease: includePrerelease,
                         includeUnlisted: true,
-                        versionConstraints: VersionConstraints.None);
+                        versionConstraints: VersionConstraints.None,
+                        gatherCache: gatherCache);
+
                     var actions = await _packageManager.PreviewUpdatePackagesAsync(
                         packagesToUpdateInProject,
                         project,
@@ -488,7 +506,7 @@ namespace NuGet.PackageManagement.UI
                         package.Id,
                         includePrerelease: true,
                         includeUnlisted: true,
-                        log: Logging.NullLogger.Instance,
+                        log: Common.NullLogger.Instance,
                         token: token);
                     var packageMetadata = r.FirstOrDefault(p => p.Identity.Version == package.Version);
                     if (packageMetadata != null)

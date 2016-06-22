@@ -24,6 +24,7 @@ using NuGet.PackageManagement;
 using NuGet.PackageManagement.UI;
 using NuGet.PackageManagement.VisualStudio;
 using NuGet.ProjectManagement;
+using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGetConsole;
 using NuGetConsole.Implementation;
@@ -65,7 +66,7 @@ namespace NuGetVSExtension
     public sealed class NuGetPackage : Package, IVsPackageExtensionProvider, IVsPersistSolutionOpts
     {
         // It is displayed in the Help - About box of Visual Studio
-        public const string ProductVersion = "3.4.0";
+        public const string ProductVersion = "3.5.0";
         private static readonly object _credentialsPromptLock = new object();
 
         private static readonly string[] _visualizerSupportedSKUs = { "Premium", "Ultimate" };
@@ -196,9 +197,27 @@ namespace NuGetVSExtension
                 if (_solutionManager == null)
                 {
                     _solutionManager = ServiceLocator.GetInstance<ISolutionManager>();
+                    _solutionManager.AfterNuGetProjectRenamed += SolutionManager_NuGetProjectRenamed;
                     Debug.Assert(_solutionManager != null);
                 }
                 return _solutionManager;
+            }
+        }
+
+        private void SolutionManager_NuGetProjectRenamed(object sender, NuGetProjectEventArgs e)
+        {
+            VSSolutionManager manager = SolutionManager as VSSolutionManager;
+            if (manager != null)
+            {
+                Project project = manager.GetDTEProject(manager.GetNuGetProjectSafeName(e.NuGetProject));
+                var windowFrame = FindExistingWindowFrame(project);
+                if (windowFrame != null)
+                {
+                    windowFrame.SetProperty((int) __VSFPROPID.VSFPROPID_OwnerCaption, String.Format(
+                        CultureInfo.CurrentCulture,
+                        Resx.Label_NuGetWindowCaption,
+                        project.Name));
+                }
             }
         }
 
@@ -342,24 +361,12 @@ namespace NuGetVSExtension
 
             HttpClient.DefaultCredentialProvider = new CredentialServiceAdapter(credentialService);
 
-            NuGet.Protocol.Core.v3.HttpHandlerResourceV3.CredentialSerivce = credentialService;
+            HttpHandlerResourceV3.CredentialService = credentialService;
 
-            NuGet.Protocol.Core.v3.HttpHandlerResourceV3.PromptForCredentials =
-                async (uri, cancellationToken) =>
-                {
-                    // Get the proxy for this URI so we can pass it to the credentialService methods
-                    // this lets them use the proxy if they have to hit the network.
-                    var proxyCache = ProxyCache.Instance;
-                    var proxy = proxyCache?.GetProxy(uri);
-
-                    return await credentialService
-                        .GetCredentials(uri, proxy: proxy, isProxy: false, cancellationToken: cancellationToken);
-                };
-
-            NuGet.Protocol.Core.v3.HttpHandlerResourceV3.CredentialsSuccessfullyUsed = (uri, credentials) =>
+            HttpHandlerResourceV3.CredentialsSuccessfullyUsed = (uri, credentials) =>
             {
+                // v2 stack credentials update
                 NuGet.CredentialStore.Instance.Add(uri, credentials);
-                NuGet.Configuration.CredentialStore.Instance.Add(uri, credentials);
             };
         }
 
@@ -372,10 +379,17 @@ namespace NuGetVSExtension
                 new CredentialProviderAdapter(new SettingsCredentialProvider(NuGet.NullCredentialProvider.
                     Instance, packageSourceProvider)));
 
+            Action<string> errorDelegate = (error) =>
+            {
+                _outputConsoleLogger.OutputConsole.WriteLine(error);
+                ActivityLog.LogWarning(ExceptionHelper.LogEntrySource, error);
+            };
+
             var importer = new VsCredentialProviderImporter(
-                this._dte,
+                _dte,
                 VisualStudioAccountProvider.FactoryMethod,
-                this._outputConsoleLogger.OutputConsole.WriteLine);
+                errorDelegate);
+
             var vstsProvider = importer.GetProvider();
             if (vstsProvider != null)
             {

@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NuGet.Logging;
+using NuGet.Common;
 using NuGet.Protocol.Core.Types;
 using Test.Utility;
 using Xunit;
 
-namespace NuGet.Protocol.Core.v3.Tests
+namespace NuGet.Protocol.Tests
 {
     public class AutoCompleteResourceV2FeedTests
     {

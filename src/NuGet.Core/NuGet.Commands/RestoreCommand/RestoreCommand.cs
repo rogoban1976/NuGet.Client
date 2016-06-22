@@ -12,11 +12,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using NuGet.Client;
+using NuGet.Common;
 using NuGet.ContentModel;
 using NuGet.DependencyResolver;
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.ProjectModel;
@@ -64,91 +64,62 @@ namespace NuGet.Commands
 
         public async Task<RestoreResult> ExecuteAsync(CancellationToken token)
         {
-            // Use the shared cache if one was provided, otherwise create a new one.
-            var localRepository = _request.DependencyProviders.GlobalPackages;
+            // Local package folders (non-sources)
+            var localRepositories = new List<NuGetv3LocalRepository>();
+            localRepositories.Add(_request.DependencyProviders.GlobalPackages);
+            localRepositories.AddRange(_request.DependencyProviders.FallbackPackageFolders);
 
             var projectLockFilePath = string.IsNullOrEmpty(_request.LockFilePath) ?
                 Path.Combine(_request.Project.BaseDirectory, LockFileFormat.LockFileName) :
                 _request.LockFilePath;
 
-            var relockFile = ShouldRelockFile(_request.ExistingLockFile, _request.Project);
-
             var contextForProject = CreateRemoteWalkContext(_request);
 
-            var graphs = await ExecuteRestoreAsync(localRepository, contextForProject, token);
+            var graphs = await ExecuteRestoreAsync(
+                _request.DependencyProviders.GlobalPackages,
+                _request.DependencyProviders.FallbackPackageFolders,
+                contextForProject,
+                token);
 
             // Only execute tool restore if the request lock file version is 2 or greater.
             // Tools did not exist prior to v2 lock files.
             var toolRestoreResults = Enumerable.Empty<ToolRestoreResult>();
             if (_request.LockFileVersion >= 2)
             {
-                toolRestoreResults = await ExecuteToolRestoresAsync(localRepository, token);
+                toolRestoreResults = await ExecuteToolRestoresAsync(
+                                    _request.DependencyProviders.GlobalPackages,
+                                    _request.DependencyProviders.FallbackPackageFolders,
+                                    token);
             }
 
             var lockFile = BuildLockFile(
                 _request.ExistingLockFile,
                 _request.Project,
                 graphs,
-                localRepository,
+                localRepositories,
                 contextForProject,
-                toolRestoreResults,
-                relockFile);
+                toolRestoreResults);
 
             if (!ValidateRestoreGraphs(graphs, _logger))
             {
                 _success = false;
             }
 
-            // Scan every graph for compatibility, as long as there were no unresolved packages
-            var checkResults = new List<CompatibilityCheckResult>();
-            if (graphs.All(g => !g.Unresolved.Any()))
+            var checkResults = VerifyCompatibility(
+                _request.Project,
+                _includeFlagGraphs,
+                localRepositories,
+                lockFile,
+                graphs,
+                _logger);
+
+            if (checkResults.Any(r => !r.Success))
             {
-                var checker = new CompatibilityChecker(localRepository, lockFile, _logger);
-                foreach (var graph in graphs)
-                {
-                    _logger.LogVerbose(string.Format(CultureInfo.CurrentCulture, Strings.Log_CheckingCompatibility, graph.Name));
-
-                    var includeFlags = IncludeFlagUtils.FlattenDependencyTypes(_includeFlagGraphs, _request.Project, graph);
-
-                    var res = checker.Check(graph, includeFlags);
-                    _success &= res.Success;
-                    checkResults.Add(res);
-                    if (res.Success)
-                    {
-                        _logger.LogVerbose(string.Format(CultureInfo.CurrentCulture, Strings.Log_PackagesAndProjectsAreCompatible, graph.Name));
-                    }
-                    else
-                    {
-                        // Get error counts on a project vs package basis
-                        var projectCount = res.Issues.Count(issue => issue.Type == CompatibilityIssueType.ProjectIncompatible);
-                        var packageCount = res.Issues.Count(issue => issue.Type != CompatibilityIssueType.ProjectIncompatible);
-
-                        // Log a summary with compatibility error counts
-                        if (projectCount > 0)
-                        {
-                            _logger.LogError(
-                                string.Format(CultureInfo.CurrentCulture,
-                                    Strings.Log_ProjectsIncompatible,
-                                    graph.Name));
-
-                            _logger.LogDebug($"Incompatible projects: {projectCount}");
-                        }
-
-                        if (packageCount > 0)
-                        {
-                            _logger.LogError(
-                                string.Format(CultureInfo.CurrentCulture,
-                                    Strings.Log_PackagesIncompatible,
-                                    graph.Name));
-
-                            _logger.LogDebug($"Incompatible packages: {packageCount}");
-                        }
-                    }
-                }
+                _success = false;
             }
 
             // Generate Targets/Props files
-            var msbuild = RestoreMSBuildFiles(_request.Project, graphs, localRepository, contextForProject);
+            var msbuild = RestoreMSBuildFiles(_request.Project, graphs, localRepositories, contextForProject);
 
             // If the request is for a v1 lock file then downgrade it and remove all v2 properties
             if (_request.LockFileVersion == 1)
@@ -171,49 +142,21 @@ namespace NuGet.Commands
             LockFile existingLockFile,
             PackageSpec project,
             IEnumerable<RestoreTargetGraph> graphs,
-            NuGetv3LocalRepository localRepository,
+            IReadOnlyList<NuGetv3LocalRepository> localRepositories,
             RemoteWalkContext contextForProject,
-            IEnumerable<ToolRestoreResult> toolRestoreResults,
-            bool relockFile)
+            IEnumerable<ToolRestoreResult> toolRestoreResults)
         {
             // Build the lock file
-            LockFile lockFile;
-            if (existingLockFile != null && existingLockFile.IsLocked)
-            {
-                // No lock file to write!
-                lockFile = existingLockFile;
-            }
-            else
-            {
-                lockFile = new LockFileBuilder(_request.LockFileVersion, _logger, _includeFlagGraphs)
+            var lockFile = new LockFileBuilder(_request.LockFileVersion, _logger, _includeFlagGraphs)
                     .CreateLockFile(
                         existingLockFile,
                         project,
                         graphs,
-                        localRepository,
+                        localRepositories,
                         contextForProject,
                         toolRestoreResults);
 
-                // If the lock file was locked originally but we are re-locking it, well... re-lock it :)
-                lockFile.IsLocked = relockFile;
-            }
-
             return lockFile;
-        }
-
-        private bool ShouldRelockFile(LockFile existingLockFile, PackageSpec project)
-        {
-            bool relockFile = false;
-            if (existingLockFile != null
-                && existingLockFile.IsLocked
-                && !existingLockFile.IsValidForPackageSpec(project, _request.LockFileVersion))
-            {
-                // The lock file was locked, but the project.json is out of date
-                relockFile = true;
-                existingLockFile.IsLocked = false;
-                _logger.LogMinimal(Strings.Log_LockFileOutOfDate);
-            }
-            return relockFile;
         }
 
         private static bool ValidateRestoreGraphs(IEnumerable<RestoreTargetGraph> graphs, ILogger logger)
@@ -260,12 +203,75 @@ namespace NuGet.Commands
             return true;
         }
 
+        private static IList<CompatibilityCheckResult> VerifyCompatibility(
+            PackageSpec project,
+            Dictionary<RestoreTargetGraph, Dictionary<string, LibraryIncludeFlags>> includeFlagGraphs,
+            IReadOnlyList<NuGetv3LocalRepository> localRepositories,
+            LockFile lockFile,
+            IEnumerable<RestoreTargetGraph> graphs,
+            ILogger logger)
+        {
+            // Scan every graph for compatibility, as long as there were no unresolved packages
+            var checkResults = new List<CompatibilityCheckResult>();
+            if (graphs.All(g => !g.Unresolved.Any()))
+            {
+                var checker = new CompatibilityChecker(localRepositories, lockFile, logger);
+                foreach (var graph in graphs)
+                {
+                    logger.LogVerbose(string.Format(CultureInfo.CurrentCulture, Strings.Log_CheckingCompatibility, graph.Name));
+
+                    var includeFlags = IncludeFlagUtils.FlattenDependencyTypes(includeFlagGraphs, project, graph);
+
+                    var res = checker.Check(graph, includeFlags);
+                    checkResults.Add(res);
+                    if (res.Success)
+                    {
+                        logger.LogVerbose(string.Format(CultureInfo.CurrentCulture, Strings.Log_PackagesAndProjectsAreCompatible, graph.Name));
+                    }
+                    else
+                    {
+                        // Get error counts on a project vs package basis
+                        var projectCount = res.Issues.Count(issue => issue.Type == CompatibilityIssueType.ProjectIncompatible);
+                        var packageCount = res.Issues.Count(issue => issue.Type != CompatibilityIssueType.ProjectIncompatible);
+
+                        // Log a summary with compatibility error counts
+                        if (projectCount > 0)
+                        {
+                            logger.LogError(
+                                string.Format(CultureInfo.CurrentCulture,
+                                    Strings.Log_ProjectsIncompatible,
+                                    graph.Name));
+
+                            logger.LogDebug($"Incompatible projects: {projectCount}");
+                        }
+
+                        if (packageCount > 0)
+                        {
+                            logger.LogError(
+                                string.Format(CultureInfo.CurrentCulture,
+                                    Strings.Log_PackagesIncompatible,
+                                    graph.Name));
+
+                            logger.LogDebug($"Incompatible packages: {packageCount}");
+                        }
+                    }
+                }
+            }
+
+            return checkResults;
+        }
+
         private async Task<IEnumerable<ToolRestoreResult>> ExecuteToolRestoresAsync(
-            NuGetv3LocalRepository localRepository,
+            NuGetv3LocalRepository userPackageFolder,
+            IReadOnlyList<NuGetv3LocalRepository> fallbackPackageFolders,
             CancellationToken token)
         {
             var toolPathResolver = new ToolPathResolver(_request.PackagesDirectory);
             var results = new List<ToolRestoreResult>();
+
+            var localRepositories = new List<NuGetv3LocalRepository>();
+            localRepositories.Add(userPackageFolder);
+            localRepositories.AddRange(fallbackPackageFolders);
 
             foreach (var tool in _request.Project.Tools)
             {
@@ -357,7 +363,8 @@ namespace NuGet.Commands
                     tool.LibraryRange,
                     projectFrameworkRuntimePairs,
                     allInstalledPackages,
-                    localRepository,
+                    userPackageFolder,
+                    fallbackPackageFolders,
                     walker,
                     contextForTool,
                     writeToLockFile: true,
@@ -375,10 +382,9 @@ namespace NuGet.Commands
                     existingToolLockFile,
                     toolPackageSpec,
                     graphs,
-                    localRepository,
+                    localRepositories,
                     contextForTool,
-                    Enumerable.Empty<ToolRestoreResult>(),
-                    false);
+                    Enumerable.Empty<ToolRestoreResult>());
 
                 // Build the path based off of the resolved tool. For now, we assume there is only
                 // ever one target.
@@ -401,6 +407,20 @@ namespace NuGet.Commands
                     toolSuccess = false;
                     _success = false;
                 }
+                
+                var checkResults = VerifyCompatibility(
+                    toolPackageSpec,
+                    new Dictionary<RestoreTargetGraph, Dictionary<string, LibraryIncludeFlags>>(),
+                    localRepositories,
+                    toolLockFile,
+                    graphs,
+                    _logger);
+
+                if (checkResults.Any(r => !r.Success))
+                {
+                    toolSuccess = false;
+                    _success = false;
+                }
 
                 results.Add(new ToolRestoreResult(
                     tool.LibraryRange.Name,
@@ -415,7 +435,9 @@ namespace NuGet.Commands
             return results;
         }
 
-        private async Task<IEnumerable<RestoreTargetGraph>> ExecuteRestoreAsync(NuGetv3LocalRepository localRepository,
+        private async Task<IEnumerable<RestoreTargetGraph>> ExecuteRestoreAsync(
+            NuGetv3LocalRepository userPackageFolder,
+            IReadOnlyList<NuGetv3LocalRepository> fallbackPackageFolders,
             RemoteWalkContext context,
             CancellationToken token)
         {
@@ -507,7 +529,8 @@ namespace NuGet.Commands
                 projectRange,
                 projectFrameworkRuntimePairs,
                 allInstalledPackages,
-                localRepository,
+                userPackageFolder,
+                fallbackPackageFolders,
                 remoteWalker,
                 context,
                 writeToLockFile: true,
@@ -549,7 +572,8 @@ namespace NuGet.Commands
                 var compatibilityResult = await projectRestoreCommand.TryRestore(projectRange,
                                                           _request.CompatibilityProfiles,
                                                           allInstalledPackages,
-                                                          localRepository,
+                                                          userPackageFolder,
+                                                          fallbackPackageFolders,
                                                           remoteWalker,
                                                           context,
                                                           writeToLockFile: false,
@@ -591,12 +615,9 @@ namespace NuGet.Commands
                 // We care about TFM only and null RID for compilation purposes
                 projectFrameworkRuntimePairs.Add(new FrameworkRuntimePair(framework.FrameworkName, null));
 
-                if (!framework.FrameworkName.IsCompileOnly)
+                foreach (var runtimeId in runtimeIds)
                 {
-                    foreach (var runtimeId in runtimeIds)
-                    {
-                        projectFrameworkRuntimePairs.Add(new FrameworkRuntimePair(framework.FrameworkName, runtimeId));
-                    }
+                    projectFrameworkRuntimePairs.Add(new FrameworkRuntimePair(framework.FrameworkName, runtimeId));
                 }
             }
 
@@ -622,7 +643,7 @@ namespace NuGet.Commands
 
         private MSBuildRestoreResult RestoreMSBuildFiles(PackageSpec project,
             IEnumerable<RestoreTargetGraph> targetGraphs,
-            NuGetv3LocalRepository repository,
+            IReadOnlyList<NuGetv3LocalRepository> repositories,
             RemoteWalkContext context)
         {
             // Get the project graph
@@ -644,8 +665,6 @@ namespace NuGet.Commands
             // Gather props and targets to write out
             var graph = targetGraphs
                 .Single(g => g.Framework.Equals(projectFrameworks[0]) && string.IsNullOrEmpty(g.RuntimeIdentifier));
-
-            var pathResolver = new VersionFolderPathResolver(repository.RepositoryRoot);
 
             var flattenedFlags = IncludeFlagUtils.FlattenDependencyTypes(_includeFlagGraphs, _request.Project, graph);
 
@@ -696,23 +715,31 @@ namespace NuGet.Commands
                                     .Equals(library.Key.Name, StringComparison.OrdinalIgnoreCase))
                                 .ToList();
 
+                            var packageInfo = NuGetv3LocalRepositoryUtility.GetPackage(repositories, library.Key.Name, library.Key.Version);
+                            var pathResolver = packageInfo.Repository.PathResolver;
+
                             targets.AddRange(items
                                 .Where(c => Path.GetExtension(c.Path).Equals(".targets", StringComparison.OrdinalIgnoreCase))
                                 .Select(c =>
-                                    Path.Combine(pathResolver.GetPackageDirectory(library.Key.Name, library.Key.Version),
+                                    Path.Combine(pathResolver.GetInstallPath(library.Key.Name, library.Key.Version),
                                     c.Path.Replace('/', Path.DirectorySeparatorChar))));
 
                             props.AddRange(items
                                 .Where(c => Path.GetExtension(c.Path).Equals(".props", StringComparison.OrdinalIgnoreCase))
                                 .Select(c =>
-                                    Path.Combine(pathResolver.GetPackageDirectory(library.Key.Name, library.Key.Version),
+                                    Path.Combine(pathResolver.GetInstallPath(library.Key.Name, library.Key.Version),
                                     c.Path.Replace('/', Path.DirectorySeparatorChar))));
                         }
                     }
                 }
             }
 
-            return new MSBuildRestoreResult(project.Name, project.BaseDirectory, repository.RepositoryRoot, props, targets);
+            // Targets files contain a macro for the repository root. If only the user package folder was used
+            // allow a replacement. If fallback folders were used the macro cannot be applied.
+            // Do not use macros for fallback folders. Use only the first repository which is the user folder.
+            var repositoryRoot = repositories.First().RepositoryRoot;
+
+            return new MSBuildRestoreResult(project.Name, project.BaseDirectory, repositoryRoot, props, targets);
         }
 
         private void DowngradeLockFileToV1(LockFile lockFile)
@@ -743,8 +770,8 @@ namespace NuGet.Commands
             }
 
             // Remove tools
-            lockFile.Tools = null;
-            lockFile.ProjectFileToolGroups = null;
+            lockFile.Tools.Clear();
+            lockFile.ProjectFileToolGroups.Clear();
         }
     }
 }

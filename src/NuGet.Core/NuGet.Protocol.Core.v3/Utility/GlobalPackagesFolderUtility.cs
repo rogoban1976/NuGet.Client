@@ -6,8 +6,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.Packaging.PackageExtraction;
@@ -30,9 +30,7 @@ namespace NuGet.Protocol
             }
 
             var globalPackagesFolder = SettingsUtility.GetGlobalPackagesFolder(settings);
-            var defaultPackagePathResolver = new VersionFolderPathResolver(
-                globalPackagesFolder,
-                normalizePackageId: false);
+            var defaultPackagePathResolver = new VersionFolderPathResolver(globalPackagesFolder);
 
             var hashPath = defaultPackagePathResolver.GetHashPath(packageIdentity.Id, packageIdentity.Version);
 
@@ -104,9 +102,7 @@ namespace NuGet.Protocol
                 packageIdentity,
                 globalPackagesFolder,
                 logger,
-                fixNuspecIdCasing: false,
                 packageSaveMode: PackageSaveMode.Defaultv3,
-                normalizeFileNames: false,
                 xmlDocFileSaveMode: PackageExtractionBehavior.XmlDocFileSaveMode);
 
             await PackageExtractor.InstallFromSourceAsync(

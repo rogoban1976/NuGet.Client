@@ -3,14 +3,14 @@
 
 using System.Net;
 using Moq;
-using NuGet.Configuration;
+using NuGet.Common;
 using Xunit;
 
 namespace NuGet.Configuration.Test
 {
     public class ProxyCacheTest
     {
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
         private static readonly string _password = EncryptionUtility.EncryptString("password");
 #else
         private static readonly string _password = null;
@@ -68,7 +68,7 @@ namespace NuGet.Configuration.Test
             var proxy = proxyCache.GetUserConfiguredProxy() as WebProxy;
 
             // Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             AssertProxy(host, user, "password", proxy);
 #else
             AssertProxy(host, null, null, proxy);

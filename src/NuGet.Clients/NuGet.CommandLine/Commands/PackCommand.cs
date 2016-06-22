@@ -84,18 +84,19 @@ namespace NuGet.CommandLine
             PackArgs packArgs = new PackArgs();
             packArgs.Logger = Console;
             packArgs.Arguments = Arguments;
+            packArgs.OutputDirectory = OutputDirectory;
+            packArgs.BasePath = BasePath;
 
             // The directory that contains msbuild
             packArgs.MsBuildDirectory = new Lazy<string>(() => MsBuildUtility.GetMsbuildDirectory(MSBuildVersion, Console));
 
             // Get the input file
-            string path = PackCommandRunner.GetInputFile(packArgs);
+            packArgs.Path = PackCommandRunner.GetInputFile(packArgs);
 
-            Console.WriteLine(LocalizedResourceManager.GetString("PackageCommandAttemptingToBuildPackage"), Path.GetFileName(path));
+            // Set the current directory if the files being packed are in a different directory
+            PackCommandRunner.SetupCurrentDirectory(packArgs);
 
-            // If the BasePath is not specified, use the directory of the input file (nuspec / proj) file
-            BasePath = String.IsNullOrEmpty(BasePath) ? Path.GetDirectoryName(Path.GetFullPath(path)) : BasePath;
-            BasePath = BasePath.TrimEnd(Path.DirectorySeparatorChar);
+            Console.WriteLine(LocalizedResourceManager.GetString("PackageCommandAttemptingToBuildPackage"), Path.GetFileName(packArgs.Path));
 
             if (!String.IsNullOrEmpty(MinClientVersion))
             {
@@ -105,7 +106,6 @@ namespace NuGet.CommandLine
                 }
             }
 
-            packArgs.BasePath = BasePath;
             packArgs.Build = Build;
             packArgs.Exclude = Exclude;
             packArgs.ExcludeEmptyDirectories = ExcludeEmptyDirectories;
@@ -114,25 +114,23 @@ namespace NuGet.CommandLine
             {
                 case Verbosity.Detailed:
                 {
-                    packArgs.LogLevel = Logging.LogLevel.Verbose;
+                    packArgs.LogLevel = Common.LogLevel.Verbose;
                     break;
                 }
                 case Verbosity.Normal:
                 {
-                    packArgs.LogLevel = Logging.LogLevel.Information;
+                    packArgs.LogLevel = Common.LogLevel.Information;
                     break;
                 }
                 case Verbosity.Quiet:
                 {
-                    packArgs.LogLevel = Logging.LogLevel.Minimal;
+                    packArgs.LogLevel = Common.LogLevel.Minimal;
                     break;
                 }
             }
             packArgs.MinClientVersion = _minClientVersionValue;
             packArgs.NoDefaultExcludes = NoDefaultExcludes;
             packArgs.NoPackageAnalysis = NoPackageAnalysis;
-            packArgs.OutputDirectory = OutputDirectory;
-            packArgs.Path = path;
             if (Properties.Any())
             {
                 packArgs.Properties.AddRange(Properties);

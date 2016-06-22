@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using NuGet.CommandLine;
 
 namespace NuGet.Common
 {
@@ -113,18 +114,6 @@ namespace NuGet.Common
                 projects.Add(new ProjectInSolution(relativePath, isSolutionFolder));
             }
             this.Projects = projects;
-        }
-
-        private static Type GetSolutionParserType(Assembly msbuildAssembly)
-        {
-            var solutionParserType = msbuildAssembly.GetType("Microsoft.Build.Construction.SolutionParser");
-
-            if (solutionParserType == null)
-            {
-                throw new CommandLineException(LocalizedResourceManager.GetString("Error_CannotLoadTypeSolutionParser"));
-            }
-
-            return solutionParserType;
         }
     }
 }

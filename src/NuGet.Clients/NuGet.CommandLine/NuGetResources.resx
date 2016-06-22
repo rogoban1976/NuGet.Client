@@ -494,6 +494,12 @@
     <value>Restoring NuGet packages...
 To prevent NuGet from downloading packages during build, open the Visual Studio Options dialog, click on the Package Manager node and uncheck '{0}'.</value>
   </data>
+  <data name="ProjectRestoreCommandNoPackagesConfigOrProjectJson" xml:space="preserve">
+   <value>Nothing to do. This project does not specify any packages for NuGet to restore.</value>
+ </data>
+  <data name="SolutionRestoreCommandNoPackagesConfigOrProjectJson" xml:space="preserve">
+   <value>Nothing to do. None of the projects in this solution specify any packages for NuGet to restore.</value>
+ </data>
   <data name="Error_CannotGetGetAllProjectFileNamesMethod" xml:space="preserve">
     <value>Cannot get the GetAllProjectFileNamesMethod from type  Mono.XBuild.CommandLine.SolutionParser.</value>
   </data>
@@ -6078,5 +6084,15 @@ Oluşturma sırasında NuGet'in paketleri indirmesini önlemek için, Visual Stu
   </data>
   <data name="PushCommandTimeoutError" xml:space="preserve">
     <value>Pushing took too long. You can change the default timeout of 300 seconds by using the -Timeout &lt;seconds&gt; option with the push command.</value>
+  </data>
+  <data name="Error_AssemblyInformationalVersion" xml:space="preserve">
+    <value>Invalid AssemblyInformationalVersion {0} on assembly {1}.</value>
+  </data>
+  <data name="Credentials_ForbiddenCredentials" xml:space="preserve">
+    <value>The remote server indicated that the previous request was forbidden. Please provide credentials for: {0}</value>
+    <comment>{0} will be replaced with the URL that needs credentials.</comment>
+  </data>
+  <data name="OutputNuGetVersion" xml:space="preserve">
+    <value>{0} Version: {1}</value>
   </data>
 </root>

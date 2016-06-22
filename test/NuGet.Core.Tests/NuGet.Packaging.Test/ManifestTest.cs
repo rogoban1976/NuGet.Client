@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -187,7 +188,11 @@ namespace NuGet.Packaging.Test
                     };
 
             // Arrange
-            var manifestStream = CreateManifest(id: "Test-Pack2", version: "1.0.0-alpha", title: "blah", authors: "Outercurve",
+            var manifestStream = CreateManifest(
+                id: "Test-Pack2",
+                version: "1.0.0-alpha",
+                title: "blah",
+                authors: "Outercurve",
                 licenseUrl: "http://nuget.org/license", projectUrl: "http://nuget.org/project", iconUrl: "https://nuget.org/icon",
                 requiresLicenseAcceptance: true, developmentDependency: true, description: "This is not a description",
                 summary: "This is a summary", releaseNotes: "Release notes",
@@ -195,6 +200,12 @@ namespace NuGet.Packaging.Test
                 dependencies: new[] { new PackageDependency("Test", VersionRange.Parse("1.2.0")) },
                 assemblyReference: new[] { new FrameworkAssemblyReference("System.Data", new[] { NuGetFramework.Parse("4.0") }) },
                 references: references,
+                serviceable: true,
+                packageTypes: new[]
+                {
+                    new PackageType("foo", new Version(2, 0, 0)),
+                    new PackageType("bar", new Version(0, 0))
+                },
                 minClientVersion: "2.0.1.0"
             );
 
@@ -211,6 +222,7 @@ namespace NuGet.Packaging.Test
                 Copyright = "Copyright 2012",
                 Language = "fr-FR",
                 Tags = "Test Unit",
+                Serviceable = true,
                 DependencyGroups = new[]
                                     {
                                         new PackageDependencyGroup(
@@ -238,7 +250,12 @@ namespace NuGet.Packaging.Test
                                         new [] { "world.winmd" }
                                     )
                                 },
-                MinClientVersionString = "2.0.1.0"
+                PackageTypes = new[]
+                {
+                    new PackageType("foo", new Version(2, 0, 0)),
+                    new PackageType("bar", new Version(0, 0))
+                },
+                MinClientVersionString = "2.0.1.0",
             };
 
             manifestMetadata.SetLicenseUrl("http://nuget.org/license");
@@ -347,16 +364,134 @@ namespace NuGet.Packaging.Test
         }
 
         [Fact]
+        public void ReadServiceable()
+        {
+            // Arrange
+            string content = @"<?xml version=""1.0""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata hello=""world"">
+    <id>A</id>
+    <version>1.0</version>
+    <authors>Luan</authors>
+    <owners>Luan</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <developmentDependency>true</developmentDependency>
+    <description>Descriptions</description>
+    <serviceable>true</serviceable>
+    <extra>This element is not defined in schema.</extra>
+  </metadata>
+  <clark>meko</clark>
+  <files>
+      <file src=""my.txt"" destination=""outdir"" />
+  </files>
+</package>";
+            // Act
+            var manifest = Manifest.ReadFrom(content.AsStream(), validateSchema: false);
+
+            // Assert
+            Assert.Equal("A", manifest.Metadata.Id);
+            Assert.Equal(NuGetVersion.Parse("1.0"), manifest.Metadata.Version);
+            Assert.Equal(new[] { "Luan" }, manifest.Metadata.Authors);
+            Assert.False(manifest.Metadata.RequireLicenseAcceptance);
+            Assert.True(manifest.Metadata.DevelopmentDependency);
+            Assert.True(manifest.Metadata.Serviceable);
+            Assert.Equal("Descriptions", manifest.Metadata.Description);
+        }
+
+        [Fact]
+        public void ReadPackageType()
+        {
+            // Arrange
+            string content = @"<?xml version=""1.0""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0</version>
+    <authors>Luan</authors>
+    <description>Descriptions</description>
+    <packageTypes>
+      <packageType name=""foo"" version=""2.0.0"" />
+      <packageType name=""bar"" />
+    </packageTypes>
+  </metadata>
+</package>";
+            // Act
+            var manifest = Manifest.ReadFrom(content.AsStream(), validateSchema: false);
+
+            // Assert
+            Assert.Equal("A", manifest.Metadata.Id);
+            Assert.Equal(NuGetVersion.Parse("1.0"), manifest.Metadata.Version);
+            Assert.Equal(2, manifest.Metadata.PackageTypes.Count());
+            Assert.Equal("foo", manifest.Metadata.PackageTypes.ElementAt(0).Name);
+            Assert.Equal(new Version(2, 0, 0), manifest.Metadata.PackageTypes.ElementAt(0).Version);
+            Assert.Equal("bar", manifest.Metadata.PackageTypes.ElementAt(1).Name);
+            Assert.Equal(new Version(0, 0), manifest.Metadata.PackageTypes.ElementAt(1).Version);
+        }
+
+        [Fact]
+        public void RejectsInvalidPackageTypeWhenValidatingSchema()
+        {
+            // Arrange
+            string content = @"<?xml version=""1.0""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0</version>
+    <authors>Luan</authors>
+    <description>Descriptions</description>
+    <packageTypes>
+      <packageType version=""2.0.0"" />
+    </packageTypes>
+  </metadata>
+</package>";
+            // Act & Assert
+#if !IS_CORECLR
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => Manifest.ReadFrom(content.AsStream(), validateSchema: true));
+            Assert.Equal(
+                "The required attribute 'name' is missing. " +
+                "This validation error occurred in a 'packageType' element.",
+                exception.Message);
+#else
+            var exception = Assert.Throws<PackagingException>(
+                () => Manifest.ReadFrom(content.AsStream(), validateSchema: true));
+            Assert.Equal("Nuspec file contains a package type that is missing the name attribute.", exception.Message);
+#endif
+        }
+
+        [Fact]
+        public void RejectsInvalidPackageTypeWhenNotValidatingSchema()
+        {
+            // Arrange
+            string content = @"<?xml version=""1.0""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0</version>
+    <authors>Luan</authors>
+    <description>Descriptions</description>
+    <packageTypes>
+      <packageType version=""2.0.0"" />
+    </packageTypes>
+  </metadata>
+</package>";
+            // Act & Assert
+            var exception = Assert.Throws<PackagingException>(
+                () => Manifest.ReadFrom(content.AsStream(), validateSchema: false));
+            Assert.Equal("Nuspec file contains a package type that is missing the name attribute.", exception.Message);
+        }
+
+        [Fact]
         public void ReadFromThrowIfValidateSchemaIsTrue()
         {
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 #endif
 
             // Act && Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // Arrange
             string content = @"<?xml version=""1.0""?>
 <package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
@@ -399,16 +534,18 @@ namespace NuGet.Packaging.Test
 </package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 #endif
 
             // Act && Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             ExceptionAssert.Throws<InvalidOperationException>(
                 () => Manifest.ReadFrom(content.AsStream(), validateSchema: true),
-                "The element 'group' in namespace 'http://schemas.microsoft.com/packaging/2013/01/nuspec.xsd' has incomplete content. List of possible elements expected: 'reference' in namespace 'http://schemas.microsoft.com/packaging/2013/01/nuspec.xsd'.");
+                "The element 'group' in namespace 'http://schemas.microsoft.com/packaging/2013/01/nuspec.xsd' has incomplete content. " +
+                "List of possible elements expected: 'reference' in namespace 'http://schemas.microsoft.com/packaging/2013/01/nuspec.xsd'. " +
+                "This validation error occurred in a 'group' element.");
 #else
             ExceptionAssert.Throws<InvalidDataException>(
                 () => Manifest.ReadFrom(content.AsStream(), validateSchema: true),
@@ -437,7 +574,7 @@ namespace NuGet.Packaging.Test
 </package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 #endif
@@ -589,6 +726,7 @@ namespace NuGet.Packaging.Test
             Assert.Equal(expected.Metadata.DevelopmentDependency, actual.Metadata.DevelopmentDependency);
             Assert.Equal(expected.Metadata.Summary, actual.Metadata.Summary);
             Assert.Equal(expected.Metadata.Tags, actual.Metadata.Tags);
+            Assert.Equal(expected.Metadata.Serviceable, actual.Metadata.Serviceable);
             Assert.Equal(expected.Metadata.MinClientVersion, actual.Metadata.MinClientVersion);
 
             if (expected.Metadata.DependencyGroups != null)
@@ -629,6 +767,19 @@ namespace NuGet.Packaging.Test
                 for (int i = 0; i < expectedFiles.Count; i++)
                 {
                     AssertFile(expectedFiles[i], actualFiles[i]);
+                }
+            }
+
+            if (expected.Metadata.PackageTypes != null)
+            {
+                var actualPackageTypes = actual.Metadata.PackageTypes.ToList();
+                var expectedPackageTypes = expected.Metadata.PackageTypes.ToList();
+
+                Assert.Equal(expectedPackageTypes.Count, actualPackageTypes.Count);
+
+                for (int i = 0; i < expectedPackageTypes.Count; i++)
+                {
+                    Assert.Equal(expectedPackageTypes[i], actualPackageTypes[i]);
                 }
             }
         }
@@ -701,6 +852,7 @@ namespace NuGet.Packaging.Test
                                             string iconUrl = null,
                                             bool? requiresLicenseAcceptance = null,
                                             bool? developmentDependency = null,
+                                            bool serviceable = false,
                                             string description = "Test description",
                                             string summary = null,
                                             string releaseNotes = null,
@@ -711,6 +863,7 @@ namespace NuGet.Packaging.Test
                                             IEnumerable<FrameworkAssemblyReference> assemblyReference = null,
                                             IEnumerable<PackageReferenceSet> references = null,
                                             IEnumerable<ManifestFile> files = null,
+                                            IEnumerable<PackageType> packageTypes = null,
                                             string minClientVersion = null)
         {
             var document = new XDocument(new XElement("package"));
@@ -772,6 +925,10 @@ namespace NuGet.Packaging.Test
             {
                 metadata.Add(new XElement("tags", tags));
             }
+            if (serviceable)
+            {
+                metadata.Add(new XElement("serviceable", true));
+            }
             if (dependencies != null)
             {
                 metadata.Add(new XElement("dependencies",
@@ -819,6 +976,25 @@ namespace NuGet.Packaging.Test
                     filesNode.Add(fileNode);
                 }
                 document.Root.Add(filesNode);
+            }
+
+            if (packageTypes != null)
+            {
+                var packageTypesNode = new XElement(NuspecUtility.PackageTypes);
+
+                foreach (var packageType in packageTypes)
+                {
+                    var packageTypeNode = new XElement(NuspecUtility.PackageType);
+                    packageTypeNode.SetAttributeValue(NuspecUtility.PackageTypeName, packageType.Name);
+                    if (packageType.Version != PackageType.EmptyVersion)
+                    {
+                        packageTypeNode.SetAttributeValue(NuspecUtility.PackageTypeVersion, packageType.Version);
+                    }
+
+                    packageTypesNode.Add(packageTypeNode);
+                }
+
+                metadata.Add(packageTypesNode);
             }
 
             var stream = new MemoryStream();

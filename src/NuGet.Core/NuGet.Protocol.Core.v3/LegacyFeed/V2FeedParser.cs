@@ -10,13 +10,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
+using NuGet.Common;
 using NuGet.Configuration;
 using NuGet.Frameworks;
-using NuGet.Logging;
 using NuGet.Packaging.Core;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
-using Strings = NuGet.Protocol.Core.v3.Strings;
 
 namespace NuGet.Protocol
 {
@@ -67,7 +66,7 @@ namespace NuGet.Protocol
         /// <summary>
         /// Creates a V2 parser
         /// </summary>
-        /// <param name="httpHandler">Message handler containing auth/proxy support</param>
+        /// <param name="httpSource">HttpSource and message handler containing auth/proxy support</param>
         /// <param name="baseAddress">base address for all services from this OData service</param>
         public V2FeedParser(HttpSource httpSource, string baseAddress)
             : this(httpSource, baseAddress, new PackageSource(baseAddress))
@@ -77,7 +76,7 @@ namespace NuGet.Protocol
         /// <summary>
         /// Creates a V2 parser
         /// </summary>
-        /// <param name="httpHandler">Message handler containing auth/proxy support</param>
+        /// <param name="httpSource">HttpSource and message handler containing auth/proxy support</param>
         /// <param name="baseAddress">base address for all services from this OData service</param>
         /// <param name="source">PackageSource useful for reporting meaningful errors that relate back to the configuration</param>
         public V2FeedParser(HttpSource httpSource, string baseAddress, PackageSource source)
@@ -135,11 +134,11 @@ namespace NuGet.Protocol
             var uri = string.Format(
                 CultureInfo.InvariantCulture,
                 GetPackagesFormat,
-                WebUtility.UrlEncode(package.Id),
-                WebUtility.UrlEncode(package.Version.ToNormalizedString()));
+                UriUtility.UrlEncodeOdataParameter(package.Id),
+                UriUtility.UrlEncodeOdataParameter(package.Version.ToNormalizedString()));
 
             // Try to find the package directly
-            // Set max count to -1, get all packages 
+            // Set max count to -1, get all packages
             var packages = await QueryV2Feed(
                 uri,
                 package.Id,
@@ -186,7 +185,7 @@ namespace NuGet.Protocol
                 throw new ArgumentNullException(nameof(token));
             }
 
-            var uri = string.Format(CultureInfo.InvariantCulture, FindPackagesByIdFormat, WebUtility.UrlEncode(id));
+            var uri = string.Format(CultureInfo.InvariantCulture, FindPackagesByIdFormat, UriUtility.UrlEncodeOdataParameter(id));
             // Set max count to -1, get all packages
             var packages = await QueryV2Feed(
                 uri,
@@ -219,8 +218,8 @@ namespace NuGet.Protocol
             // The search term comes in already encoded from VS
             var uri = string.Format(CultureInfo.InvariantCulture, SearchEndPointFormat,
                                     filters.IncludePrerelease ? IsAbsoluteLatestVersionFilterFlag : IsLatestVersionFilterFlag,
-                                    WebUtility.UrlEncode(searchTerm),
-                                    WebUtility.UrlEncode(shortFormTargetFramework),
+                                    UriUtility.UrlEncodeOdataParameter(searchTerm),
+                                    UriUtility.UrlEncodeOdataParameter(shortFormTargetFramework),
                                     filters.IncludePrerelease.ToString().ToLowerInvariant(),
                                     skip,
                                     take);
@@ -374,9 +373,11 @@ namespace NuGet.Protocol
             CancellationToken token)
         {
             var results = new List<V2FeedPackageInfo>();
+            var uris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var page = 1;
 
             var uri = string.Format("{0}{1}", _baseAddress, relativeUri);
+            uris.Add(uri);
 
             // first request
             Task<XDocument> docRequest = LoadXmlAsync(uri, ignoreNotFounds, log, token);
@@ -403,12 +404,20 @@ namespace NuGet.Protocol
                 if (max < 0 || results.Count < max)
                 {
                     // Request the next url in parallel to parsing the current page
-                    if (!string.IsNullOrEmpty(nextUri) && uri != nextUri)
+                    if (!string.IsNullOrEmpty(nextUri))
                     {
-                        // a bug on the server side causes the same next link to be returned 
+                        // a bug on the server side causes the same next link to be returned
                         // for every page. To avoid falling into an infinite loop we must
-                        // keep track here.
-                        uri = nextUri;
+                        // keep track of all uri and error out for any duplicate uri which means
+                        // potential bug at server side.
+
+                        if (!uris.Add(nextUri))
+                        {
+                            throw new FatalProtocolException(string.Format(
+                                CultureInfo.CurrentCulture,
+                                Strings.Protocol_duplicateUri,
+                                nextUri));
+                        }
 
                         docRequest = LoadXmlAsync(nextUri, ignoreNotFounds, log, token);
                     }
@@ -433,20 +442,20 @@ namespace NuGet.Protocol
             CancellationToken token)
         {
             return await _httpSource.ProcessResponseAsync(
-                () =>
-                {
-                    var request = new HttpRequestMessage(HttpMethod.Get, uri);
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/atom+xml"));
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
-                    return request;
-                },
+                new HttpSourceRequest(
+                    () =>
+                    {
+                        var request = HttpRequestMessageFactory.Create(HttpMethod.Get, uri, log);
+                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/atom+xml"));
+                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
+                        return request;
+                    }),
                 async response =>
                 {
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
                         var networkStream = await response.Content.ReadAsStreamAsync();
-                        var timeoutStream = new DownloadTimeoutStream(uri, networkStream, _httpSource.DownloadTimeout);
-                        return LoadXml(timeoutStream);
+                        return LoadXml(networkStream);
                     }
                     else if (ignoreNotFounds && response.StatusCode == HttpStatusCode.NotFound)
                     {

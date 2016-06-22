@@ -45,7 +45,7 @@ namespace NuGet.Configuration.Test
                 var machineWidePathTuple = Settings.GetFileNameAndItsRoot("test root", machineWidePath);
                 var globalConfigTuple = Settings.GetFileNameAndItsRoot("test root", globalConfigPath);
 
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
                 var commonApplicationData = Environment.GetEnvironmentVariable("PROGRAMDATA") ??
                     Environment.GetEnvironmentVariable("ALLUSERSPROFILE") ?? null;
                 var userSetting = Environment.GetEnvironmentVariable("APPDATA");
@@ -54,7 +54,7 @@ namespace NuGet.Configuration.Test
                 var userSetting = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 #endif
                 // Assert 
-                Assert.Equal(commonApplicationData, machineWidePathTuple.Item2);
+                Assert.Equal(Path.Combine(commonApplicationData,"nuget"), machineWidePathTuple.Item2);
                 Assert.Equal("NuGet.Config", machineWidePathTuple.Item1);
                 Assert.Equal(Path.Combine(userSetting,"NuGet"), globalConfigTuple.Item2);
                 Assert.Equal("NuGet.Config", globalConfigTuple.Item1);
@@ -67,7 +67,7 @@ namespace NuGet.Configuration.Test
                 var machineWidePathTuple = Settings.GetFileNameAndItsRoot("test root", machineWidePath);
                 var globalConfigTuple = Settings.GetFileNameAndItsRoot("test root", globalConfigPath);
 
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
                 var commonApplicationData = @"/etc/opt";
                 var userSetting = Path.Combine(Environment.GetEnvironmentVariable("HOME"), ".nuget");
 #else
@@ -75,7 +75,7 @@ namespace NuGet.Configuration.Test
                 var userSetting = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 #endif
                 // Assert 
-                Assert.Equal(commonApplicationData, machineWidePathTuple.Item2);
+                Assert.Equal(Path.Combine(commonApplicationData, "nuget"), machineWidePathTuple.Item2);
                 Assert.Equal("NuGet.Config", machineWidePathTuple.Item1);
                 Assert.Equal(Path.Combine(userSetting, "NuGet"), globalConfigTuple.Item2);
                 Assert.Equal("NuGet.Config", globalConfigTuple.Item1);
@@ -88,7 +88,7 @@ namespace NuGet.Configuration.Test
                 var machineWidePathTuple = Settings.GetFileNameAndItsRoot("test root", machineWidePath);
                 var globalConfigTuple = Settings.GetFileNameAndItsRoot("test root", globalConfigPath);
 
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
                 var commonApplicationData = @"/Library/Application Support";
                 var userSetting = Path.Combine(Environment.GetEnvironmentVariable("HOME"), ".nuget");
 #else
@@ -96,7 +96,7 @@ namespace NuGet.Configuration.Test
                 var userSetting = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 #endif
                 // Assert 
-                Assert.Equal(commonApplicationData, machineWidePathTuple.Item2);
+                Assert.Equal(Path.Combine(commonApplicationData, "nuget"), machineWidePathTuple.Item2);
                 Assert.Equal("NuGet.Config", machineWidePathTuple.Item1);
                 Assert.Equal(Path.Combine(userSetting, "NuGet"), globalConfigTuple.Item2);
                 Assert.Equal("NuGet.Config", globalConfigTuple.Item1);
@@ -1063,7 +1063,7 @@ namespace NuGet.Configuration.Test
             }
         }
 
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
         [Fact]
         public void SettingsUtility_SetEncryptedValue()
         {
@@ -2146,7 +2146,7 @@ namespace NuGet.Configuration.Test
             var config = @"<?xml version=""1.0"" encoding=""utf-8""?>
 <configuration>
 <config>
-<add key=""globalPackagesFolder"" value=""C:\Temp\NuGet"" />
+<add key=""globalPackagesFolder"" value=""a"" />
 </config>
 </configuration>";
 
@@ -2160,7 +2160,7 @@ namespace NuGet.Configuration.Test
                 var globalPackagesFolderPath = SettingsUtility.GetGlobalPackagesFolder(settings);
 
                 // Assert
-                Assert.Equal(@"C:\Temp\NuGet", globalPackagesFolderPath);
+                Assert.Equal(Path.Combine(mockBaseDirectory, "a"), globalPackagesFolderPath);
             }
         }
 
@@ -2180,12 +2180,13 @@ namespace NuGet.Configuration.Test
             {
                 ConfigurationFileTestUtility.CreateConfigurationFile(nugetConfigPath, mockBaseDirectory, config);
                 Settings settings = new Settings(mockBaseDirectory);
+                var expected = Path.GetFullPath(Path.Combine(mockBaseDirectory, @"..\..\NuGetPackages"));
 
                 // Act
                 var globalPackagesFolderPath = SettingsUtility.GetGlobalPackagesFolder(settings);
 
                 // Assert
-                Assert.Equal(@"..\..\NuGetPackages", globalPackagesFolderPath);
+                Assert.Equal(expected, globalPackagesFolderPath);
             }
         }
 
@@ -2193,7 +2194,7 @@ namespace NuGet.Configuration.Test
         public void GetGlobalPackagesFolder_Default()
         {
             // Arrange
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 #else
             string userProfile = null;

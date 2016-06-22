@@ -11,11 +11,10 @@ using System.Threading.Tasks;
 using NuGet.Commands;
 using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.PackageManagement;
 using NuGet.Packaging;
+using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.CommandLine
 {
@@ -40,8 +39,6 @@ namespace NuGet.CommandLine
         [Option(typeof(NuGetCommand), "CommandMSBuildVersion")]
         public string MSBuildVersion { get; set; }
 
-        private static readonly int MaxDegreesOfConcurrency = Environment.ProcessorCount;
-
         [ImportingConstructor]
         public RestoreCommand()
             : base(MachineCache.Default)
@@ -53,6 +50,11 @@ namespace NuGet.CommandLine
 
         public override async Task ExecuteCommandAsync()
         {
+            if (DisableParallelProcessing)
+            {
+                HttpSourceResourceProvider.Throttle = SemaphoreSlimThrottle.CreateBinarySemaphore();
+            }
+
             CalculateEffectivePackageSaveMode();
 
             var restoreSummaries = new List<RestoreSummary>();
@@ -71,15 +73,26 @@ namespace NuGet.CommandLine
 
             var restoreInputs = DetermineRestoreInputs();
 
+            var hasPackagesConfigFiles = restoreInputs.PackagesConfigFiles.Count > 0;
+            var hasProjectJsonFiles = restoreInputs.RestoreV3Context.Inputs.Any();
+            if (!hasPackagesConfigFiles && !hasProjectJsonFiles)
+            {
+
+                Console.LogMinimal(LocalizedResourceManager.GetString(restoreInputs.RestoringWithSolutionFile
+                        ? "SolutionRestoreCommandNoPackagesConfigOrProjectJson"
+                        : "ProjectRestoreCommandNoPackagesConfigOrProjectJson"));
+                return;
+            }
+
             // packages.config
-            if (restoreInputs.PackagesConfigFiles.Count > 0)
+            if (hasPackagesConfigFiles)
             {
                 var v2RestoreResult = await PerformNuGetV2RestoreAsync(restoreInputs);
                 restoreSummaries.Add(v2RestoreResult);
             }
 
             // project.json
-            if (restoreInputs.RestoreV3Context.Inputs.Any())
+            if (hasProjectJsonFiles)
             {
                 // Read the settings outside of parallel loops.
                 ReadSettings(restoreInputs);
@@ -97,7 +110,7 @@ namespace NuGet.CommandLine
                     cacheContext.NoCache = NoCache;
                     restoreContext.CacheContext = cacheContext;
                     restoreContext.DisableParallel = DisableParallelProcessing;
-                    restoreContext.ConfigFileName = ConfigFile;
+                    restoreContext.ConfigFile = ConfigFile;
                     restoreContext.MachineWideSettings = MachineWideSettings;
                     restoreContext.Sources = Source.ToList();
                     restoreContext.Log = Console;
@@ -118,9 +131,12 @@ namespace NuGet.CommandLine
                                         globalPackagesFolder);
 
                     // Providers
+                    // Use the settings loaded above in ReadSettings(restoreInputs)
                     restoreContext.RequestProviders.Add(new MSBuildCachedRequestProvider(
                         providerCache,
-                        restoreInputs.ProjectReferenceLookup));
+                        restoreInputs.ProjectReferenceLookup,
+                        Settings));
+
                     restoreContext.RequestProviders.Add(new MSBuildP2PRestoreRequestProvider(providerCache));
                     restoreContext.RequestProviders.Add(new ProjectJsonRestoreRequestProvider(providerCache));
 
@@ -302,7 +318,7 @@ namespace NuGet.CommandLine
             var collectorLogger = new CollectorLogger(Console);
             var projectContext = new ConsoleProjectContext(collectorLogger)
             {
-                PackageExtractionContext = new PackageExtractionContext()
+                PackageExtractionContext = new PackageExtractionContext(collectorLogger)
             };
 
             if (EffectivePackageSaveMode != Packaging.PackageSaveMode.None)
@@ -480,6 +496,11 @@ namespace NuGet.CommandLine
             {
                 ProcessSolutionFile(projectFilePath, packageRestoreInputs);
             }
+            else
+            {
+                // Not a file we know about. Try to be helpful without response.
+                throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, RestoreRunner.GetInvalidInputErrorMessage(projectFileName), projectFileName));
+            }
         }
 
         /// <summary>
@@ -572,40 +593,6 @@ namespace NuGet.CommandLine
                         || string.Equals(lastFourCharacters, "proj", StringComparison.OrdinalIgnoreCase));
             }
             return false;
-        }
-
-        /// <summary>
-        /// Gets the solution file, in full path format. If <paramref name="solutionFileOrDirectory"/> is a file,
-        /// that file is returned. Otherwise, searches for a *.sln file in
-        /// directory <paramref name="solutionFileOrDirectory"/>. If exactly one sln file is found,
-        /// that file is returned. If multiple sln files are found, an exception is thrown.
-        /// If no sln files are found, returns null.
-        /// </summary>
-        /// <param name="solutionFileOrDirectory">The solution file or directory to search for solution files.</param>
-        /// <returns>The full path of the solution file. Or null if no solution file can be found.</returns>
-        private string GetSolutionFile(string solutionFileOrDirectory)
-        {
-            //Check if the string passed is a file
-            //If it is a file, then check if it a solution or project file
-            //For other file types and directories it will fall out of these checks and fail later for invalid inputs
-            if (File.Exists(solutionFileOrDirectory) && IsSolutionOrProjectFile(solutionFileOrDirectory))
-            {
-                return Path.GetFullPath(solutionFileOrDirectory);
-            }
-
-            // look for solution files
-            var slnFiles = Directory.GetFiles(solutionFileOrDirectory, "*.sln");
-            if (slnFiles.Length > 1)
-            {
-                throw new InvalidOperationException(LocalizedResourceManager.GetString("Error_MultipleSolutions"));
-            }
-
-            if (slnFiles.Length == 1)
-            {
-                return Path.GetFullPath(slnFiles[0]);
-            }
-
-            return null;
         }
 
         /// <summary>

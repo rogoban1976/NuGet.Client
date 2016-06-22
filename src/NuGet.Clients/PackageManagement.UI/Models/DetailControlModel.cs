@@ -34,6 +34,8 @@ namespace NuGet.PackageManagement.UI
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields")]
         protected ItemFilter _filter;
 
+        protected Dictionary<string, VersionRange> _projectVersionRangeDict;
+
         private Dictionary<NuGetVersion, DetailedPackageMetadata> _metadataDict;
 
         protected DetailControlModel(IEnumerable<NuGetProject> nugetProjects)
@@ -42,7 +44,7 @@ namespace NuGet.PackageManagement.UI
             _options = new Options();
 
             // Show dependency behavior and file conflict options if any of the projects are non-build integrated
-            _options.ShowClassicOptions = nugetProjects.Any(project => !(project is BuildIntegratedNuGetProject));
+            _options.ShowClassicOptions = nugetProjects.Any(project => !(project is INuGetIntegratedProject));
         }
 
         /// <summary>
@@ -50,6 +52,7 @@ namespace NuGet.PackageManagement.UI
         /// </summary>
         public virtual void CleanUp()
         {
+            Options.SelectedChanged -= DependencyBehavior_SelectedChanged;
         }
 
         /// <summary>
@@ -75,8 +78,27 @@ namespace NuGet.PackageManagement.UI
 
             _allPackageVersions = versions.Select(v => v.Version).ToList();
 
+            _projectVersionRangeDict = new Dictionary<string, VersionRange>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var project in _nugetProjects)
+            {
+                // cache allowed version range for each nuget project for current selected package
+                var packageReference = (await project.GetInstalledPackagesAsync(CancellationToken.None))
+                    .FirstOrDefault(r => StringComparer.OrdinalIgnoreCase.Equals(r.PackageIdentity.Id, searchResultPackage.Id));
+
+                _projectVersionRangeDict.Add(project.GetMetadata<string>(NuGetProjectMetadataKeys.Name), packageReference?.AllowedVersions);
+            }
+
+            // hook event handler for dependency behavior changed
+            Options.SelectedChanged += DependencyBehavior_SelectedChanged;
+
             CreateVersions();
             OnCurrentPackageChanged();
+        }
+
+        protected virtual void DependencyBehavior_SelectedChanged(object sender, EventArgs e)
+        {
+            CreateVersions();
         }
 
         protected virtual void OnCurrentPackageChanged()
@@ -243,52 +265,71 @@ namespace NuGet.PackageManagement.UI
         // Calculate the version to select among _versions and select it
         protected void SelectVersion()
         {
-            if (_versions.Count == 0)
+            DisplayVersion versionToSelect = null;
+
+            if (_versions.Count > 0)
             {
-                // there's nothing to select
-                return;
+                // it should always select the top version from versions list to install or update
+                // which has a valid version. If find none, then just set to null.
+                versionToSelect = _versions.FirstOrDefault(v => v != null && v.IsValidVersion);
             }
 
-            DisplayVersion versionToSelect = _versions
-                .Where(v => v != null && v.Version.Equals(_searchResultPackage.Version))
-                .FirstOrDefault();
-            if (versionToSelect == null)
-            {
-                versionToSelect = _versions[0];
-            }
-
-            if (versionToSelect != null)
-            {
-                SelectedVersion = versionToSelect;
-            }
+            SelectedVersion = versionToSelect;
         }
 
         internal async Task LoadPackageMetadaAsync(IPackageMetadataProvider metadataProvider, CancellationToken token)
         {
             var versions = await _searchResultPackage.GetVersionsAsync();
 
-            var packages = Enumerable.Empty<IPackageSearchMetadata>();
-            try
+            // First try to load the metadata from the version info. This will happen if we already fetched metadata
+            // about each version at the same time as fetching the version list (that it, V2). This also acts as a
+            // means to cache version metadata.
+            _metadataDict = versions
+                .Where(v => v.PackageSearchMetadata != null)
+                .ToDictionary(
+                    v => v.Version,
+                    v => new DetailedPackageMetadata(v.PackageSearchMetadata, v.DownloadCount));
+
+            // If we are missing any metadata, go to the metadata provider and fetch all of the data again.
+            if (versions.Select(v => v.Version).Except(_metadataDict.Keys).Any())
             {
-                // load up the full details for each version
-                packages = await metadataProvider?.GetPackageMetadataListAsync(Id, true, false, token);
+                try
+                {
+                    // Load up the full details for each version.
+                    var packages = await metadataProvider?.GetPackageMetadataListAsync(
+                        Id,
+                        includePrerelease: true,
+                        includeUnlisted: false,
+                        cancellationToken: token);
+
+                    var uniquePackages = packages
+                        .GroupBy(
+                            m => m.Identity.Version,
+                            (v, ms) => ms.First());
+
+                    _metadataDict = uniquePackages
+                        .GroupJoin(
+                            versions,
+                            m => m.Identity.Version,
+                            d => d.Version,
+                            (m, d) =>
+                            {
+                                var versionInfo = d.OrderByDescending(v => v.DownloadCount).FirstOrDefault();
+                                if (versionInfo != null)
+                                {
+                                    // Save the metadata about this version to the VersionInfo instance.
+                                    versionInfo.PackageSearchMetadata = m;
+                                }
+
+                                return new DetailedPackageMetadata(m, versionInfo?.DownloadCount);
+                            })
+                         .ToDictionary(m => m.Version);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Ignore failures.
+                }
             }
-            catch (InvalidOperationException)
-            {
-                // Ignore failures.
-            }
-
-            var uniquePackages = packages
-                .GroupBy(m => m.Identity.Version, (v, ms) => ms.First());
-
-            var s = uniquePackages
-                .GroupJoin(
-                    versions,
-                    m => m.Identity.Version,
-                    d => d.Version,
-                    (m, d) => new DetailedPackageMetadata(m, d.FirstOrDefault()?.DownloadCount));
-
-            _metadataDict = s.ToDictionary(m => m.Version);
 
             DetailedPackageMetadata p;
             if (SelectedVersion != null

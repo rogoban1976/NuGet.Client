@@ -3,35 +3,51 @@ using System.Collections.Generic;
 using System.Linq;
 using NuGet.Shared;
 
+#if IS_NET40_CLIENT
+using FallbackList = System.Collections.Generic.IList<NuGet.Frameworks.NuGetFramework>;
+#else
+using FallbackList = System.Collections.Generic.IReadOnlyList<NuGet.Frameworks.NuGetFramework>;
+#endif
+
 namespace NuGet.Frameworks
 {
-    public class FallbackFramework : NuGetFramework, IEquatable<FallbackFramework>
+#if NUGET_FRAMEWORKS_INTERNAL
+    internal
+#else
+    public
+#endif
+    class FallbackFramework : NuGetFramework, IEquatable<FallbackFramework>
     {
         /// <summary>
         /// List framework to fall back to.
         /// </summary>
-        public IReadOnlyList<NuGetFramework> Fallback { get; }
+        public FallbackList Fallback
+        {
+            get { return _fallback; }
+        }
+
+        private readonly FallbackList _fallback;
         private int? _hashCode;
 
-        public FallbackFramework(NuGetFramework framework, IReadOnlyList<NuGetFramework> fallbackFrameworks)
+        public FallbackFramework(NuGetFramework framework, FallbackList fallbackFrameworks)
             : base(framework)
         {
             if (framework == null)
             {
-                throw new ArgumentNullException(nameof(framework));
+                throw new ArgumentNullException("framework");
             }
 
             if (fallbackFrameworks == null)
             {
-                throw new ArgumentNullException(nameof(fallbackFrameworks));
+                throw new ArgumentNullException("fallbackFrameworks");
             }
 
             if (fallbackFrameworks.Count == 0)
             {
-                throw new ArgumentException("Empty fallbackFrameworks is invalid", nameof(fallbackFrameworks));
+                throw new ArgumentException("Empty fallbackFrameworks is invalid", "fallbackFrameworks");
             }
 
-            Fallback = fallbackFrameworks;
+            _fallback = fallbackFrameworks;
         }
 
         public override bool Equals(object obj)

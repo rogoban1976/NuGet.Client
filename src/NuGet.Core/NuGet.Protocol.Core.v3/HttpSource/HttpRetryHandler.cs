@@ -4,40 +4,20 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
-using NuGet.Logging;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.Protocol
 {
-    public class HttpRetryHandler
+    /// <summary>
+    /// The <see cref="HttpRetryHandler"/> is for retrying and HTTP request if it times out, has any exception,
+    /// or returns a status code of 500 or greater.
+    /// </summary>
+    public class HttpRetryHandler : IHttpRetryHandler
     {
-        /// <summary>
-        /// The <see cref="HttpRetryHandler"/> is for retrying and HTTP request if it times out, has any exception,
-        /// or returns a status code of 500 or greater.
-        /// </summary>
-        public HttpRetryHandler()
-        {
-            MaxTries = 3;
-            RequestTimeout = TimeSpan.FromSeconds(100);
-            RetryDelay = TimeSpan.FromMilliseconds(200);
-        }
-
-        /// <summary>The maximum number of times to try the request. This value includes the initial attempt.</summary>
-        /// <remarks>This API is intended only for testing purposes and should not be used in product code.</remarks>
-        public int MaxTries { get; set; }
-
-        /// <summary>How long to wait on the request to come back with a response.</summary>
-        /// <summary>This API is intended only for testing purposes and should not be used in product code.</summary>
-        public TimeSpan RequestTimeout { get; set; }
-
-        /// <summary>How long to wait before trying again after a failed request.</summary>
-        /// <summary>This API is intended only for testing purposes and should not be used in product code.</summary>
-        public TimeSpan RetryDelay { get; set; }
-
         /// <summary>
         /// Make an HTTP request while retrying after failed attempts or timeouts.
         /// </summary>
@@ -47,9 +27,7 @@ namespace NuGet.Protocol
         /// of a stream that can only be consumed once.
         /// </remarks>
         public async Task<HttpResponseMessage> SendAsync(
-            HttpClient client,
-            Func<HttpRequestMessage> requestFactory,
-            HttpCompletionOption completionOption,
+            HttpRetryHandlerRequest request,
             ILogger log,
             CancellationToken cancellationToken)
         {
@@ -57,20 +35,20 @@ namespace NuGet.Protocol
             HttpResponseMessage response = null;
             var success = false;
 
-            while (tries < MaxTries && !success)
+            while (tries < request.MaxTries && !success)
             {
                 if (tries > 0)
                 {
-                    await Task.Delay(RetryDelay, cancellationToken);
+                    await Task.Delay(request.RetryDelay, cancellationToken);
                 }
 
                 tries++;
                 success = true;
 
-                using (var request = requestFactory())
+                using (var requestMessage = request.RequestFactory())
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    string requestUri = request.RequestUri.ToString();
+                    string requestUri = requestMessage.RequestUri.ToString();
                     
                     try
                     {
@@ -89,24 +67,35 @@ namespace NuGet.Protocol
                         // disposing it.
                         response?.Dispose();
 
-                        var timeoutMessage = string.Format(
-                            CultureInfo.CurrentCulture,
-                            Strings.Http_Timeout,
-                            request.Method,
-                            requestUri,
-                            (int)RequestTimeout.TotalMilliseconds);
-
                         log.LogInformation("  " + string.Format(
                             CultureInfo.InvariantCulture,
                             Strings.Http_RequestLog,
-                            request.Method,
+                            requestMessage.Method,
                             requestUri));
 
+                        // Issue the request.
+                        var timeoutMessage = string.Format(
+                            CultureInfo.CurrentCulture,
+                            Strings.Http_Timeout,
+                            requestMessage.Method,
+                            requestUri,
+                            (int)request.RequestTimeout.TotalMilliseconds);
                         response = await TimeoutUtility.StartWithTimeout(
-                            timeoutToken => client.SendAsync(request, completionOption, timeoutToken),
-                            RequestTimeout,
+                            timeoutToken => request.HttpClient.SendAsync(requestMessage, request.CompletionOption, timeoutToken),
+                            request.RequestTimeout,
                             timeoutMessage,
                             cancellationToken);
+
+                        // Wrap the response stream so that the download can timeout.
+                        if (response.Content != null)
+                        {
+                            var networkStream = await response.Content.ReadAsStreamAsync();
+                            var newContent = new DownloadTimeoutStreamContent(
+                                requestUri,
+                                networkStream,
+                                request.DownloadTimeout);
+                            response.Content = newContent;
+                        }
 
                         log.LogInformation("  " + string.Format(
                             CultureInfo.InvariantCulture,
@@ -120,11 +109,19 @@ namespace NuGet.Protocol
                             success = false;
                         }
                     }
-                    catch (Exception e) when (!(e is OperationCanceledException))
+                    catch (OperationCanceledException)
+                    {
+                        response?.Dispose();
+
+                        throw;
+                    }
+                    catch (Exception e)
                     {
                         success = false;
 
-                        if (tries >= MaxTries)
+                        response?.Dispose();
+
+                        if (tries >= request.MaxTries)
                         {
                             throw;
                         }
@@ -132,9 +129,9 @@ namespace NuGet.Protocol
                         log.LogInformation(string.Format(
                             CultureInfo.CurrentCulture,
                             Strings.Log_RetryingHttp,
-                            request.Method,
+                            requestMessage.Method,
                             requestUri,
-                            request)
+                            requestMessage)
                             + Environment.NewLine
                             + ExceptionUtilities.DisplayMessage(e));
                     }

@@ -1,8 +1,7 @@
 ### Constants ###
-$ValidConfigurations = 'debug', 'release'
 $DefaultConfiguration = 'debug'
-$ValidReleaseLabels = 'Release','rtm', 'rc', 'beta', 'local'
-$DefaultReleaseLabel = 'local'
+$DefaultReleaseLabel = 'zlocal'
+$DefaultMSBuildVersion = '15'
 
 $NuGetClientRoot = Split-Path -Path $PSScriptRoot -Parent
 
@@ -11,17 +10,25 @@ if ((Split-Path -Path $PSScriptRoot -Leaf) -eq "scripts") {
     $NuGetClientRoot = Split-Path -Path $NuGetClientRoot -Parent
 }
 
-$MSBuildExe = Join-Path ${env:ProgramFiles(x86)} 'MSBuild\14.0\Bin\msbuild.exe'
-$NuGetExe = Join-Path $NuGetClientRoot '.nuget\nuget.exe'
-$ILMerge = Join-Path $NuGetClientRoot 'packages\ILMerge.2.14.1208\tools\ILMerge.exe'
-$XunitConsole = Join-Path $NuGetClientRoot 'packages\xunit.runner.console.2.1.0\tools\xunit.console.x86.exe'
 $CLIRoot = Join-Path $NuGetClientRoot 'cli'
-$DotNetExe = Join-Path $CLIRoot 'dotnet.exe'
 $Nupkgs = Join-Path $NuGetClientRoot nupkgs
 $Artifacts = Join-Path $NuGetClientRoot artifacts
 $Intermediate = Join-Path $Artifacts obj
+
 $NuGetCoreSln = Join-Path $NuGetClientRoot 'NuGet.Core.sln'
 $NuGetClientSln = Join-Path $NuGetClientRoot 'NuGet.Client.sln'
+
+$DotNetExe = Join-Path $CLIRoot 'dotnet.exe'
+$MSBuildRoot = Join-Path ${env:ProgramFiles(x86)} 'MSBuild\'
+$MSBuildExeRelPath = 'bin\msbuild.exe'
+$NuGetExe = Join-Path $NuGetClientRoot '.nuget\nuget.exe'
+$XunitConsole = Join-Path $NuGetClientRoot 'packages\xunit.runner.console.2.1.0\tools\xunit.console.exe'
+$ILMerge = Join-Path $NuGetClientRoot 'packages\ILMerge.2.14.1208\tools\ILMerge.exe'
+
+Set-Alias dotnet $DotNetExe
+Set-Alias nuget $NuGetExe
+Set-Alias xunit $XunitConsole
+Set-Alias ilmerge $ILMerge
 
 Function Read-PackageSources {
     param($NuGetConfig)
@@ -51,8 +58,16 @@ Function Verbose-Log($VerboseMessage) {
     Write-Verbose "[$(Trace-Time)]`t$VerboseMessage"
 }
 
-Function Error-Log($ErrorMessage) {
-    Write-Error "[$(Trace-Time)]`t$ErrorMessage"
+Function Error-Log {
+    param(
+        [string]$ErrorMessage,
+        [switch]$Fatal)
+    if (-not $Fatal) {
+        Write-Error "[$(Trace-Time)]`t$ErrorMessage"
+    }
+    else {
+        Write-Error "[$(Trace-Time)]`t$ErrorMessage" -ErrorAction Stop
+    }
 }
 
 Function Warning-Log($WarningMessage) {
@@ -86,9 +101,14 @@ Function Invoke-BuildStep {
         [switch]$SkipExecution
     )
     if (-not $SkipExecution) {
+        if ($env:TEAMCITY_VERSION) {
+            Write-Output "##teamcity[blockOpened name='$BuildStep']"
+        }
+
         Trace-Log "[BEGIN] $BuildStep"
         $sw = [Diagnostics.Stopwatch]::StartNew()
         $completed = $false
+
         try {
             Invoke-Command $Expression -ArgumentList $Arguments -ErrorVariable err
             $completed = $true
@@ -107,6 +127,10 @@ Function Invoke-BuildStep {
                     Error-Log "[FAILED +$(Format-ElapsedTime $sw.Elapsed)] $BuildStep"
                 }
             }
+
+            if ($env:TEAMCITY_VERSION) {
+                Write-Output "##teamcity[blockClosed name='$BuildStep']"
+            }
         }
     }
     else {
@@ -123,7 +147,7 @@ Function Update-Submodules {
         $opts += '--quiet'
     }
     Trace-Log 'Updating and initializing submodules'
-    Verbose-Log "git $opts"
+    Trace-Log "git $opts"
     & git $opts 2>&1
 }
 
@@ -141,31 +165,69 @@ Function Install-DotnetCLI {
     [CmdletBinding()]
     param()
 
-    if (-not (Test-Path $DotNetExe))
-    {
-        Trace-Log 'Downloading Dotnet CLI'
+    Trace-Log 'Downloading Dotnet CLI'
 
-        New-Item -ItemType Directory -Force -Path $CLIRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $CLIRoot | Out-Null
 
-        $installDotnet = Join-Path $CLIRoot "install.ps1"
-        $env:DOTNET_INSTALL_DIR=$NuGetClientRoot
+    $env:DOTNET_HOME=$CLIRoot
 
-        New-Item -ItemType Directory -Force -Path $CLIRoot
+    $installDotnet = Join-Path $CLIRoot "dotnet-install.ps1"
+    $env:DOTNET_INSTALL_DIR=$NuGetClientRoot
 
-        wget https://raw.githubusercontent.com/dotnet/cli/rel/1.0.0/scripts/obtain/install.ps1 -OutFile cli/install.ps1
+    wget 'https://raw.githubusercontent.com/dotnet/cli/rel/1.0.0/scripts/obtain/dotnet-install.ps1' -OutFile 'cli/dotnet-install.ps1'
 
-        & cli/install.ps1 -Channel beta -i $CLIRoot
+    & cli/dotnet-install.ps1 -Channel preview -i $CLIRoot -Version 1.0.0-preview2-003030
 
-        if (-not (Test-Path $DotNetExe)) {
-            Error-Log "Unable to find dotnet.exe. The CLI install may have failed."
-        }
+    if (-not (Test-Path $DotNetExe)) {
+        Error-Log "Unable to find dotnet.exe. The CLI install may have failed." -Fatal
     }
+
+    # Display build info
+    & $DotNetExe --info
+}
+
+function Enable-DelaySigningForDotNet {
+    param(
+        $xproject,
+        $KeyFile
+    )
+    Verbose-Log "Adding keyFile '$KeyFile' to buildOptions"
+
+    $buildOptions = $xproject.buildOptions
+
+    if ($buildOptions -eq $null) {
+        $newSection = ConvertFrom-Json -InputObject '{ }'
+        $xproject | Add-Member -Name "buildOptions" -value $newSection -MemberType NoteProperty
+        $buildOptions = $xproject.buildOptions
+    }
+
+    if (-not $xproject.buildOptions.keyFile) {
+        $buildOptions | Add-Member -Name "keyFile" -value $KeyFile -MemberType NoteProperty
+    }
+    else {
+        Warning-Log "keyFile already exists"
+    }
+
+    if (-not $xproject.buildOptions.delaySign) {
+        $buildOptions | Add-Member -Name "delaySign" -value $true -MemberType NoteProperty
+    }
+    else {
+        Warning-Log "delaySign already exists"
+    }
+}
+
+Function Save-ProjectFile ($xproject, $fileName) {
+    Trace-Log "Saving project to '$fileName'"
+    $xproject | ConvertTo-Json -Depth 999 | Out-File $fileName
 }
 
 # Enables delay signed build
 Function Enable-DelaySigning {
     [CmdletBinding()]
-    param($MSPFXPath, $NuGetPFXPath)
+    param(
+        $MSPFXPath,
+        $NuGetPFXPath
+    )
     if (Test-Path $MSPFXPath) {
         Trace-Log "Setting NuGet.Core solution to delay sign using $MSPFXPath"
         $env:DNX_BUILD_KEY_FILE=$MSPFXPath
@@ -173,6 +235,22 @@ Function Enable-DelaySigning {
 
         Trace-Log "Using the Microsoft Key for NuGet Command line $MSPFXPath"
         $env:MS_PFX_PATH=$MSPFXPath
+
+        $XProjectsLocation = Join-Path $NuGetClientRoot '\src\NuGet.Core'
+        Trace-Log "Adding KeyFile '$MSPFXPath' to project files in '$XProjectsLocation'"
+        (Get-ChildItem $XProjectsLocation -rec -Filter 'project.json') |
+            %{ $_.FullName } |
+            %{
+                Verbose-Log "Processing '$_'"
+                $xproject = (Get-Content $_ -Raw) | ConvertFrom-Json
+                if (-not $xproject) {
+                    Write-Error "'$_' is not a valid json file"
+                }
+                else {
+                    Enable-DelaySigningForDotNet $xproject $MSPFXPath
+                    Save-ProjectFile $xproject $_
+                }
+            }
     }
 
     if (Test-Path $NuGetPFXPath) {
@@ -190,27 +268,14 @@ Function Format-BuildNumber([int]$BuildNumber) {
     '{0:D4}' -f $BuildNumber
 }
 
-## Cleans the machine level cache from all packages
 Function Clear-PackageCache {
     [CmdletBinding()]
     param()
-    Trace-Log 'Removing .NUGET packages'
+    Trace-Log 'Cleaning package cache (except the web cache)'
 
-    if (Test-Path $env:userprofile\.nuget\packages) {
-        rm -r $env:userprofile\.nuget\packages -Force
-    }
-
-    Trace-Log 'Removing NuGet web cache'
-
-    if (Test-Path $env:localappdata\NuGet\v3-cache) {
-        rm -r $env:localappdata\NuGet\v3-cache -Force
-    }
-
-    Trace-Log 'Removing NuGet machine cache'
-
-    if (Test-Path $env:localappdata\NuGet\Cache) {
-        rm -r $env:localappdata\NuGet\Cache -Force
-    }
+    & nuget locals packages-cache -clear -verbosity detailed
+    #& nuget locals global-packages -clear -verbosity detailed
+    & nuget locals temp -clear -verbosity detailed
 }
 
 Function Clear-Artifacts {
@@ -236,7 +301,7 @@ Function Restore-SolutionPackages{
     param(
         [Alias('path')]
         [string]$SolutionPath,
-        [ValidateSet(4, 12, 14)]
+        [ValidateSet(4, 12, 14, 15)]
         [int]$MSBuildVersion
     )
     $opts = , 'restore'
@@ -250,7 +315,9 @@ Function Restore-SolutionPackages{
         $opts += '-MSBuildVersion', $MSBuildVersion
     }
 
-    $opts += '-verbosity', 'quiet'
+    if (-not $VerbosePreference) {
+        $opts += '-verbosity', 'quiet'
+    }
 
     Trace-Log "Restoring packages @""$NuGetClientRoot"""
     Trace-Log "$NuGetExe $opts"
@@ -263,10 +330,13 @@ Function Restore-SolutionPackages{
 # Restore nuget.core.sln projects
 Function Restore-XProjects {
 
-    $opts = 'restore', "src\NuGet.Core", "test\NuGet.Core.Tests", "test\NuGet.Core.FuncTests", "--verbosity", "minimal", "--infer-runtimes"
+    $opts = 'restore', "src\NuGet.Core", "test\NuGet.Core.Tests", "test\NuGet.Core.FuncTests"
+    if (-not $VerbosePreference) {
+        $opts += '--verbosity', 'minimal'
+    }
 
     Trace-Log "Restoring packages for xprojs"
-    Verbose-Log "$dotnetExe $opts"
+    Trace-Log "$dotnetExe $opts"
     & $dotnetExe $opts
     if (-not $?) {
         Error-Log "Restore failed @""$_"". Code: $LASTEXITCODE"
@@ -300,9 +370,11 @@ Function Invoke-DotnetPack {
     }
     Process {
         $XProjectLocations | %{
-            $opts = , 'pack'
-            $opts += $_
-            $opts += '--configuration', $Configuration
+            $opts = @()
+            if ($VerbosePreference) {
+                $opts += '-v'
+            }
+            $opts += 'pack', $_, '--configuration', $Configuration
 
             if ($Output) {
                 $opts += '--output', (Join-Path $Output (Split-Path $_ -Leaf))
@@ -311,10 +383,10 @@ Function Invoke-DotnetPack {
             if($ReleaseLabel -ne 'Release') {
                 $opts += '--version-suffix', "${ReleaseLabel}-${BuildNumber}"
             }
-
+            $opts += '--serviceable'
             Trace-Log "$DotNetExe $opts"
 
-            &$DotNetExe $opts
+            & $DotNetExe $opts
             if (-not $?) {
                 Error-Log "Pack failed @""$_"". Code: $LASTEXITCODE"
             }
@@ -338,10 +410,6 @@ Function Build-CoreProjects {
         Restore-XProjects $XProjectsLocation -Fast:$Fast
     }
 
-    # NuGet.Shared is a source package and fails when built as part of other projects.
-    $sharedPath = Join-Path $XProjectsLocation "NuGet.Shared"
-    Invoke-DotnetPack $sharedPath -config $Configuration -label $ReleaseLabel -build $BuildNumber -out $Artifacts
-
     $xprojects = Find-XProjects $XProjectsLocation
     $xprojects | Invoke-DotnetPack -config $Configuration -label $ReleaseLabel -build $BuildNumber -out $Artifacts
 
@@ -357,51 +425,63 @@ Function Test-XProject {
         [string[]]$XProjectLocations,
         [string]$Configuration = $DefaultConfiguration
     )
-    Begin {
-        # NuGet.Shared is a source package and fails when built as part of other projects.
-        $sharedPath = Join-Path $NuGetClientRoot "src\NuGet.Core\NuGet.Shared"
-        Trace-Log "$DotNetExe build $sharedPath --configuration $Configuration"
-        & $DotNetExe build $sharedPath --configuration $Configuration
-    }
+    Begin {}
     Process {
-        $XProjectLocations | %{
+        $XProjectLocations | Resolve-Path | %{
             Trace-Log "Running tests in ""$_"""
 
             $directoryName = Split-Path $_ -Leaf
 
             pushd $_
 
-            # Build 
-            Trace-Log "$DotNetExe build --configuration $Configuration" --runtime win7-x64
-            & $DotNetExe build --configuration $Configuration --runtime win7-x64
-
-            if (-not $?) {
-                Error-Log "Build failed for $directoryName. Code: $LASTEXITCODE"
-            }
-            else
-            {
-                # Check if dnxcore50 exists in the project.json file
-                $xtestProjectJson = Join-Path $_ "project.json"
-                if (Get-Content $($xtestProjectJson) | Select-String "netstandardapp1.5") {
-                    # Run tests for Core CLR
-
-                    Trace-Log "$DotNetExe test --configuration $Configuration --framework netstandardapp1.5 --no-build"
-                    & $DotNetExe test --configuration $Configuration
-                    if (-not $?) {
-                        Error-Log "Tests failed @""$_"" on CoreCLR. Code: $LASTEXITCODE"
-                    }
+            # Check if dnxcore50 exists in the project.json file
+            $xtestProjectJson = Join-Path $_ "project.json"
+            $xproject = gc $xtestProjectJson -raw | ConvertFrom-Json
+            if ($xproject.frameworks.'netcoreapp1.0') {
+                # Run tests for Core CLR
+                $opts = @()
+                if ($VerbosePreference) {
+                    $opts += '-v'
                 }
+                $opts += 'test', '--configuration', $Configuration, '--framework', 'netcoreapp1.0'
 
-                # Run tests for CLR
-                if (Get-Content $($xtestProjectJson) | Select-String "net46") {
+                Trace-Log "$DotNetExe $opts"
+
+                & $DotNetExe $opts
+
+                if (-not $?) {
+                    Error-Log "Tests failed @""$_"" on CoreCLR. Code: $LASTEXITCODE"
+                }
+            }
+
+            # Run tests for CLR
+            if ($xproject.frameworks.net46) {
+                # Build
+                $opts = @()
+                if ($VerbosePreference) {
+                    $opts += '-v'
+                }
+                $opts += 'build', '--configuration', $Configuration, '--runtime', 'win7-x64'
+
+                Trace-Log "$DotNetExe $opts"
+
+                & $DotNetExe $opts
+
+                if (-not $?) {
+                    Error-Log "Build failed for $directoryName. Code: $LASTEXITCODE"
+                }
+                else {
                     $htmlOutput = Join-Path $_ "bin\$Configuration\net46\win7-x64\xunit.results.html"
                     $desktopTestAssembly = Join-Path $_ "bin\$Configuration\net46\win7-x64\$directoryName.dll"
+                    $opts = $desktopTestAssembly, '-html', $htmlOutput
+                    if ($VerbosePreference) {
+                        $opts += '-verbose'
+                    }
+                    Trace-Log "$XunitConsole $opts"
 
-                    Trace-Log "$XunitConsole $desktopTestAssembly -html $htmlOutput"
-
-                    & $XunitConsole $desktopTestAssembly -html $htmlOutput
+                    & $XunitConsole $opts
                     if (-not $?) {
-                       Error-Log "Tests failed @""$_"" on CLR. Code: $LASTEXITCODE"
+                        Error-Log "Tests failed @""$_"" on CLR. Code: $LASTEXITCODE"
                     }
                 }
             }
@@ -425,12 +505,33 @@ Function Test-CoreProjects {
     $xtests | Test-XProject -Configuration $Configuration
 }
 
+Function Test-MSBuildVersionPresent {
+    [CmdletBinding()]
+    param(
+        [string]$MSBuildVersion
+    )
+
+   	$MSBuildExe = Get-MSBuildExe $MSBuildVersion
+
+    Test-Path $MSBuildExe
+}
+
+Function Get-MSBuildExe {
+    param(
+        [string]$MSBuildVersion
+    )
+
+    $MSBuildExe = Join-Path $MSBuildRoot ($MSBuildVersion + ".0")
+    Join-Path $MSBuildExe $MSBuildExeRelPath
+}
+
 Function Build-ClientsProjects {
     [CmdletBinding()]
     param(
         [string]$Configuration = $DefaultConfiguration,
         [string]$ReleaseLabel = $DefaultReleaseLabel,
         [int]$BuildNumber = (Get-BuildNumber),
+        [string]$MSBuildVersion = $DefaultMSBuildVersion,
         [switch]$SkipRestore,
         [switch]$Fast
     )
@@ -438,7 +539,7 @@ Function Build-ClientsProjects {
     $solutionPath = Join-Path $NuGetClientRoot NuGet.Clients.sln
     if (-not $SkipRestore) {
         # Restore packages for NuGet.Tooling solution
-        Restore-SolutionPackages -path $solutionPath -MSBuildVersion 14
+        Restore-SolutionPackages -path $solutionPath -MSBuildVersion $MSBuildVersion
     }
 
     # Build the solution
@@ -447,6 +548,8 @@ Function Build-ClientsProjects {
     if (-not $VerbosePreference) {
         $opts += '/verbosity:minimal'
     }
+
+    $MSBuildExe = Get-MSBuildExe $MSBuildVersion
 
     Trace-Log "$MSBuildExe $opts"
     & $MSBuildExe $opts
@@ -458,33 +561,44 @@ Function Build-ClientsProjects {
 Function Test-ClientsProjects {
     [CmdletBinding()]
     param(
-        [string]$Configuration = $DefaultConfiguration
+        [string]$Configuration = $DefaultConfiguration,
+        [string]$MSBuildVersion = $DefaultMSBuildVersion
     )
+    
+    # We don't run command line tests on Dev15 as we don't build a nuget.exe for this version
     $testProjectsLocation = Join-Path $NuGetClientRoot test\NuGet.Clients.Tests
-    $testProjects = Get-ChildItem $testProjectsLocation -Recurse -Filter '*.csproj'`
-        | %{ $_.FullName }`
-        | ?{ -not $_.EndsWith('WebAppTest.csproj') }
+    $testProjects = Get-ChildItem $testProjectsLocation -Recurse -Filter '*.csproj' |
+        %{ $_.FullName } |
+        ?{ -not $_.EndsWith('WebAppTest.csproj') -and 
+           -not ($_.EndsWith('NuGet.CommandLine.Test.csproj') -and ($MSBuildVersion -eq '15'))}
 
-    foreach($testProj in $testProjects) {
-        Test-ClientProject $testProj -Configuration $Configuration
-    }
+    $testProjects | Test-ClientProject -Configuration $Configuration -MSBuildVersion $MSBuildVersion
 }
 
 Function Test-ClientProject {
     [CmdletBinding()]
     param(
         [parameter(ValueFromPipeline=$True, Mandatory=$True, Position=0)]
-        [string]$testProj,
-        [string]$Configuration = $DefaultConfiguration
+        [string[]]$TestProjects,
+        [string]$Configuration = $DefaultConfiguration,
+        [string]$MSBuildVersion = $DefaultMSBuildVersion
     )
-    $opts = $testProj, "/t:RunTests", "/p:Configuration=$Configuration;RunTests=true"
-    if (-not $VerbosePreference) {
-        $opts += '/verbosity:minimal'
-    }
-    Trace-Log "$MSBuildExe $opts"
-    & $MSBuildExe $opts
-    if (-not $?) {
-        Error-Log "Tests failed @""$testProj"". Code: $LASTEXITCODE"
+    Begin {}
+    Process{
+        $TestProjects | %{
+            $opts = $_, "/t:RunTests", "/p:Configuration=$Configuration;RunTests=true"
+            if (-not $VerbosePreference) {
+                $opts += '/verbosity:minimal'
+            }
+
+            $MSBuildExe = Get-MSBuildExe $MSBuildVersion
+
+            Trace-Log "$MSBuildExe $opts"
+            & $MSBuildExe $opts
+            if (-not $?) {
+                Error-Log "Tests failed @""$_"". Code: $LASTEXITCODE"
+            }
+        }
     }
 }
 
@@ -496,7 +610,8 @@ Function Read-FileList($FilePath) {
 Function Invoke-ILMerge {
     [CmdletBinding()]
     param(
-        [string]$Configuration = $DefaultConfiguration
+        [string]$Configuration = $DefaultConfiguration,
+        [string]$KeyFile
     )
     $buildArtifactsFolder = [io.path]::combine($Artifacts, 'NuGet.CommandLine', $Configuration)
     $ignoreList = Read-FileList (Join-Path $buildArtifactsFolder '.mergeignore')
@@ -516,10 +631,14 @@ Function Invoke-ILMerge {
     $opts = , 'NuGet.exe'
     $opts += $buildArtifacts
     $opts += "/out:$Artifacts\NuGet.exe"
+    if ($KeyFile) {
+        $opts += "/delaysign"
+        $opts += "/keyfile:$KeyFile"
+    }
     if ($VerbosePreference) {
         $opts += '/log'
     }
-    Verbose-Log "$ILMerge $opts"
+    Trace-Log "$ILMerge $opts"
 
     pushd $buildArtifactsFolder
     try {

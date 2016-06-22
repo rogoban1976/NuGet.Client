@@ -1,15 +1,25 @@
-{
+﻿{
   "version": "3.5.0-*",
   "copyright": "Copyright .NET Foundation. All rights reserved.",
-  "projectUrl": "https://github.com/NuGet/NuGet.Client",
-  "licenseUrl": "https://raw.githubusercontent.com/NuGet/NuGet.Client/dev/LICENSE.txt",
-  "description": "NuGet Project Management",
-  "compilationOptions": {
-    "warningsAsErrors": true
+  "packOptions": {
+    "licenseUrl": "https://raw.githubusercontent.com/NuGet/NuGet.Client/dev/LICENSE.txt",
+    "projectUrl": "https://github.com/NuGet/NuGet.Client"
   },
-  "compile": [
-    "../NuGet.Shared/*.cs"
-  ],
+  "description": "NuGet Project Management",
+  "buildOptions": {
+    "warningsAsErrors": true,
+    "xmlDoc": true,
+    "nowarn": [
+      "CS1591",
+      "CS1574",
+      "CS1573"
+    ],
+    "compile": {
+      "include": [
+        "../../../Shared/*.cs"
+      ]
+    }
+  },
   "dependencies": {
     "Microsoft.Web.Xdt": "2.1.1",
     "NuGet.ProjectModel": {
@@ -20,6 +30,11 @@
     "net45": {
       "frameworkAssemblies": {
         "System.ComponentModel.Composition": ""
+      },
+      "buildOptions": {
+        "define": [
+          "IS_DESKTOP"
+        ]
       }
     }
   }

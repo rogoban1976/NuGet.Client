@@ -38,6 +38,7 @@ namespace NuGet.Packaging
             Authors = copy.Authors;
             Owners = copy.Owners;
             Tags = string.IsNullOrEmpty(copy.Tags) ? null : copy.Tags.Trim();
+            Serviceable = copy.Serviceable;
             _licenseUrl = copy.LicenseUrl?.OriginalString;
             _projectUrl = copy.ProjectUrl?.OriginalString;
             _iconUrl = copy.IconUrl?.OriginalString;
@@ -50,6 +51,7 @@ namespace NuGet.Packaging
             DependencyGroups = copy.DependencyGroups;
             FrameworkReferences = copy.FrameworkReferences;
             PackageAssemblyReferences = copy.PackageAssemblyReferences;
+            PackageTypes = copy.PackageTypes;
             MinClientVersionString = copy.MinClientVersion?.ToString();
             ContentFiles = copy.ContentFiles;
             DevelopmentDependency = copy.DevelopmentDependency;
@@ -166,6 +168,8 @@ namespace NuGet.Packaging
 
         public string Tags { get; set; }
 
+        public bool Serviceable { get; set; }
+
         private IEnumerable<PackageDependencyGroup> _dependencyGroups = new List<PackageDependencyGroup>();
         public IEnumerable<PackageDependencyGroup> DependencyGroups
         {
@@ -219,7 +223,9 @@ namespace NuGet.Packaging
             return groupedReferenceSets;
         }
 
-        public ICollection<ManifestContentFiles> ContentFiles { get; set; } = new List<ManifestContentFiles>();
+        public IEnumerable<ManifestContentFiles> ContentFiles { get; set; } = new List<ManifestContentFiles>();
+        
+        public IEnumerable<PackageType> PackageTypes { get; set; } = new List<PackageType>();
 
         private static IEnumerable<PackageDependencyGroup> MergeDependencyGroups(IEnumerable<PackageDependencyGroup> actualDependencyGroups)
         {

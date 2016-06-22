@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using NuGet.Configuration;
 using Xunit;
-using Console = NuGet.Common.Console;
 
 namespace NuGet.CommandLine.Test
 {
@@ -18,12 +18,18 @@ namespace NuGet.CommandLine.Test
             var provider = new ConsoleCredentialProvider(console);
 
             // Act
-            var actual = await provider.Get(Uri, null, true, false, true, CancellationToken.None);
+            var actual = await provider.GetAsync(
+                Uri,
+                proxy: null,
+                type: CredentialRequestType.Proxy,
+                message: null,
+                isRetry: false,
+                nonInteractive: true,
+                cancellationToken: CancellationToken.None);
 
             // Assert
             Assert.Equal(Credentials.CredentialStatus.ProviderNotApplicable, actual.Status);
             Assert.Null(actual.Credentials);
         }
-
     }
 }

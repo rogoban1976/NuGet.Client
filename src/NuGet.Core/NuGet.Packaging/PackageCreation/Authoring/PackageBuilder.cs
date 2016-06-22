@@ -10,6 +10,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Xml.Linq;
 using NuGet.Common;
 using NuGet.Frameworks;
 using NuGet.Packaging.PackageCreation.Resources;
@@ -62,9 +63,12 @@ namespace NuGet.Packaging
             FrameworkReferences = new Collection<FrameworkAssemblyReference>();
             ContentFiles = new Collection<ManifestContentFiles>();
             PackageAssemblyReferences = new Collection<PackageReferenceSet>();
+            PackageTypes = new Collection<PackageType>();
             Authors = new HashSet<string>();
             Owners = new HashSet<string>();
             Tags = new HashSet<string>();
+            // Just like parameter replacements, these are also case insensitive, for consistency.
+            Properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
         public string Id
@@ -74,6 +78,12 @@ namespace NuGet.Packaging
         }
 
         public NuGetVersion Version
+        {
+            get;
+            set;
+        }
+
+        public bool HasSnapshotVersion
         {
             get;
             set;
@@ -121,6 +131,12 @@ namespace NuGet.Packaging
             set;
         }
 
+        public bool Serviceable
+        {
+            get;
+            set;
+        }
+
         public bool DevelopmentDependency
         {
             get;
@@ -151,7 +167,23 @@ namespace NuGet.Packaging
             set;
         }
 
+        public string OutputName
+        {
+            get;
+            set;
+        }
+
         public ISet<string> Tags
+        {
+            get;
+            private set;
+        }
+
+        /// <summary>
+        /// Exposes the additional properties extracted by the metadata 
+        /// extractor or received from the command line.
+        /// </summary>
+        public Dictionary<string, string> Properties
         {
             get;
             private set;
@@ -169,7 +201,7 @@ namespace NuGet.Packaging
             private set;
         }
 
-        public Collection<IPackageFile> Files
+        public ICollection<IPackageFile> Files
         {
             get;
             private set;
@@ -191,6 +223,12 @@ namespace NuGet.Packaging
         }
 
         public ICollection<PackageReferenceSet> PackageAssemblyReferences
+        {
+            get;
+            set;
+        }
+
+        public ICollection<PackageType> PackageTypes
         {
             get;
             set;
@@ -244,6 +282,22 @@ namespace NuGet.Packaging
             }
         }
 
+        IEnumerable<ManifestContentFiles> IPackageMetadata.ContentFiles
+        {
+            get
+            {
+                return ContentFiles;
+            }
+        }
+
+        IEnumerable<PackageType> IPackageMetadata.PackageTypes
+        {
+            get
+            {
+                return PackageTypes;
+            }
+        }
+
         public Version MinClientVersion
         {
             get;
@@ -282,11 +336,12 @@ namespace NuGet.Packaging
                 WriteManifest(package, DetermineMinimumSchemaVersion(Files, DependencyGroups), psmdcpPath);
 
                 // Write the files to the package
-                var extensions = WriteFiles(package);
+                HashSet<string> filesWithoutExtensions = new HashSet<string>();
+                var extensions = WriteFiles(package, filesWithoutExtensions);
 
                 extensions.Add("nuspec");
 
-                WriteOpcContentTypes(package, extensions);
+                WriteOpcContentTypes(package, extensions, filesWithoutExtensions);
 
                 WriteOpcPackageProperties(package, psmdcpPath);
             }
@@ -297,7 +352,7 @@ namespace NuGet.Packaging
             List<string> creatorInfo = new List<string>();
             var assembly = typeof(PackageBuilder).GetTypeInfo().Assembly;
             creatorInfo.Add(assembly.FullName);
-#if !NETSTANDARD1_5 // CORECLR_TODO: Environment.OSVersion
+#if !IS_CORECLR // CORECLR_TODO: Environment.OSVersion
             creatorInfo.Add(Environment.OSVersion.ToString());
 #endif
 
@@ -311,8 +366,8 @@ namespace NuGet.Packaging
         }
 
         private static int DetermineMinimumSchemaVersion(
-            Collection<IPackageFile> Files,
-            Collection<PackageDependencyGroup> package)
+            ICollection<IPackageFile> Files,
+            ICollection<PackageDependencyGroup> package)
         {
             if (HasContentFilesV2(Files) || HasIncludeExclude(package))
             {
@@ -446,7 +501,7 @@ namespace NuGet.Packaging
             // If there's no base path then ignore the files node
             if (basePath != null)
             {
-                if (manifest.Files.Count == 0)
+                if (!manifest.HasFilesNode)
                 {
                     AddFiles(basePath, @"**\*", null);
                 }
@@ -470,13 +525,14 @@ namespace NuGet.Packaging
             ProjectUrl = metadata.ProjectUrl;
             RequireLicenseAcceptance = metadata.RequireLicenseAcceptance;
             DevelopmentDependency = metadata.DevelopmentDependency;
+            Serviceable = metadata.Serviceable;
             Description = metadata.Description;
             Summary = metadata.Summary;
             ReleaseNotes = metadata.ReleaseNotes;
             Language = metadata.Language;
             Copyright = metadata.Copyright;
             MinClientVersion = metadata.MinClientVersion;
-            ContentFiles = new List<ManifestContentFiles>(manifestMetadata.ContentFiles);
+            ContentFiles = new Collection<ManifestContentFiles>(manifestMetadata.ContentFiles.ToList());
 
             if (metadata.Tags != null)
             {
@@ -489,6 +545,11 @@ namespace NuGet.Packaging
             if (manifestMetadata.PackageAssemblyReferences != null)
             {
                 PackageAssemblyReferences.AddRange(manifestMetadata.PackageAssemblyReferences);
+            }
+
+            if (manifestMetadata.PackageTypes != null)
+            {
+                PackageTypes = new Collection<PackageType>(metadata.PackageTypes.ToList());
             }
         }
 
@@ -515,7 +576,7 @@ namespace NuGet.Packaging
             }
         }
 
-        private HashSet<string> WriteFiles(ZipArchive package)
+        private HashSet<string> WriteFiles(ZipArchive package, HashSet<string> filesWithoutExtensions)
         {
             var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -533,6 +594,10 @@ namespace NuGet.Packaging
                         if (!string.IsNullOrEmpty(fileExtension))
                         {
                             extensions.Add(fileExtension.Substring(1));
+                        }
+                        else
+                        {
+                            filesWithoutExtensions.Add($"/{file.Path.Replace("\\", "/")}");
                         }
                     }
                     catch
@@ -557,7 +622,9 @@ namespace NuGet.Packaging
 
             ExcludeFiles(searchFiles, basePath, exclude);
 
-            if (!PathResolver.IsWildcardSearch(source) && !PathResolver.IsDirectoryPath(source) && !searchFiles.Any())
+            // Don't throw if the exclude is what made this find no files. Adding files from
+            // project.json ends up calling this one file at a time where some may be filtered out.  
+            if (!PathResolver.IsWildcardSearch(source) && !PathResolver.IsDirectoryPath(source) && !searchFiles.Any() && string.IsNullOrEmpty(exclude))
             {
                 throw new FileNotFoundException(
                     String.Format(CultureInfo.CurrentCulture, NuGetResources.PackageAuthoring_FileNotFound, source));
@@ -662,7 +729,7 @@ namespace NuGet.Packaging
 
         private static void CreatePart(ZipArchive package, string path, Stream sourceStream)
         {
-            if (PackageHelper.IsManifest(path) || ProjectJsonPathUtilities.IsProjectConfig(path))
+            if (PackageHelper.IsNuspec(path))
             {
                 return;
             }
@@ -709,33 +776,66 @@ namespace NuGet.Packaging
         {
             ZipArchiveEntry relsEntry = package.CreateEntry("_rels/.rels", CompressionLevel.Optimal);
 
+            XNamespace relationships = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+            XDocument document = new XDocument(
+                new XElement(relationships + "Relationships",
+                    new XElement(relationships + "Relationship",
+                        new XAttribute("Type", "http://schemas.microsoft.com/packaging/2010/07/manifest"),
+                        new XAttribute("Target", $"/{path}"),
+                        new XAttribute("Id", GenerateRelationshipId())),
+                    new XElement(relationships + "Relationship",
+                        new XAttribute("Type", "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"),
+                        new XAttribute("Target", $"/{psmdcpPath}"),
+                        new XAttribute("Id", GenerateRelationshipId()))
+                    )
+                );
+
             using (var writer = new StreamWriter(relsEntry.Open()))
             {
-                writer.Write(String.Format(@"<?xml version=""1.0"" encoding=""utf-8""?>
-<Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">
-    <Relationship Type=""http://schemas.microsoft.com/packaging/2010/07/manifest"" Target=""/{0}"" Id=""{1}"" />
-    <Relationship Type=""http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"" Target=""/{2}"" Id=""{3}"" />
-</Relationships>", path, GenerateRelationshipId(), psmdcpPath, GenerateRelationshipId()));
+                document.Save(writer);
                 writer.Flush();
             }
         }
 
-        private static void WriteOpcContentTypes(ZipArchive package, HashSet<string> extensions)
+        private static void WriteOpcContentTypes(ZipArchive package, HashSet<string> extensions, HashSet<string> filesWithoutExtensions)
         {
             // OPC backwards compatibility
             ZipArchiveEntry relsEntry = package.CreateEntry("[Content_Types].xml", CompressionLevel.Optimal);
 
+            XNamespace content = "http://schemas.openxmlformats.org/package/2006/content-types";
+            XElement element = new XElement(content + "Types",
+                new XElement(content + "Default",
+                    new XAttribute("Extension", "rels"),
+                    new XAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml")),
+                new XElement(content + "Default",
+                    new XAttribute("Extension", "psmdcp"),
+                    new XAttribute("ContentType", "application/vnd.openxmlformats-package.core-properties+xml"))
+                    );
+            foreach (var extension in extensions)
+            {
+                element.Add(
+                    new XElement(content + "Default",
+                        new XAttribute("Extension", extension),
+                        new XAttribute("ContentType", "application/octet")
+                        )
+                    );
+            }
+            foreach (var file in filesWithoutExtensions)
+            {
+                element.Add(
+                    new XElement(content + "Override",
+                        new XAttribute("PartName", file),
+                        new XAttribute("ContentType", "application/octet")
+                        )
+                    );
+            }
+
+            XDocument document = new XDocument(element);
+
             using (var writer = new StreamWriter(relsEntry.Open()))
             {
-                writer.Write(@"<?xml version=""1.0"" encoding=""utf-8""?>
-<Types xmlns=""http://schemas.openxmlformats.org/package/2006/content-types"">
-    <Default Extension=""rels"" ContentType=""application/vnd.openxmlformats-package.relationships+xml"" />
-    <Default Extension=""psmdcp"" ContentType=""application/vnd.openxmlformats-package.core-properties+xml"" />");
-                foreach (var extension in extensions)
-                {
-                    writer.Write(@"<Default Extension=""" + extension + @""" ContentType=""application/octet"" />");
-                }
-                writer.Write("</Types>");
+                document.Save(writer);
                 writer.Flush();
             }
         }
@@ -745,27 +845,34 @@ namespace NuGet.Packaging
         {
             ZipArchiveEntry packageEntry = package.CreateEntry(psmdcpPath, CompressionLevel.Optimal);
 
+            var dcText = "http://purl.org/dc/elements/1.1/";
+            XNamespace dc = dcText;
+            var dctermsText = "http://purl.org/dc/terms/";
+            XNamespace dcterms = dctermsText;
+            var xsiText = "http://www.w3.org/2001/XMLSchema-instance";
+            XNamespace xsi = xsiText;
+            XNamespace core ="http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
+
+            XDocument document = new XDocument(
+                new XElement(core + "coreProperties",
+                    new XAttribute(XNamespace.Xmlns + "dc", dcText),
+                    new XAttribute(XNamespace.Xmlns + "dcterms", dctermsText),
+                    new XAttribute(XNamespace.Xmlns + "xsi", xsiText),
+                    new XElement(dc + "creator", String.Join(", ", Authors)),
+                    new XElement(dc + "description", Description),
+                    new XElement(dc + "identifier", Id),
+                    new XElement(core + "version", Version.ToString()),
+                    //new XElement(core + "language", Language),
+                    new XElement(core + "keywords", ((IPackageMetadata)this).Tags),
+                    //new XElement(dc + "title", Title),
+                    new XElement(core + "lastModifiedBy", CreatorInfo())
+                    )
+                );
+
+
             using (var writer = new StreamWriter(packageEntry.Open()))
             {
-                writer.Write(@"<?xml version=""1.0"" encoding=""utf-8""?>");
-                writer.Write(@"<coreProperties xmlns:dc=""http://purl.org/dc/elements/1.1/"" xmlns:dcterms=""http://purl.org/dc/terms/"" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns=""http://schemas.openxmlformats.org/package/2006/metadata/core-properties"">");
-                writer.Write($"<dc:creator>{String.Join(", ", Authors)}</dc:creator>");
-                writer.Write($"<dc:description>{Description}</dc:description>");
-                writer.Write($"<dc:identifier>{Id}</dc:identifier>");
-                writer.Write($"<version>{Version.ToString()}</version>");
-
-                // REVIEW: This doesn't appear to be written by System.IO.Packaging.Package.PackageProperties
-                //writer.Write($"<language>{Language}</language>");
-
-                writer.Write($"<keywords>{((IPackageMetadata)this).Tags}</keywords>");
-
-                // REVIEW: This doesn't appear to be written by System.IO.Packaging.Package.PackageProperties
-                //writer.Write($"<dc:title>{Title}</dc:title>");
-
-                writer.Write($"<lastModifiedBy>{CreatorInfo()}</lastModifiedBy>");
-
-                writer.Write("</coreProperties>");
-
+                document.Save(writer);
                 writer.Flush();
             }
         }

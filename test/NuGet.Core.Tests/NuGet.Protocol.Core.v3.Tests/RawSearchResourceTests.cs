@@ -4,16 +4,16 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Packaging.Core;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
+using NuGet.Protocol;
 using NuGet.Versioning;
 using Test.Utility;
 using Xunit;
 
-namespace NuGet.Protocol.Core.v3.Tests
+namespace NuGet.Protocol.Tests
 {
     public class RawSearchResourceTests
     {
@@ -24,7 +24,7 @@ namespace NuGet.Protocol.Core.v3.Tests
             var serviceAddress = TestUtility.CreateServiceAddress();
 
             var responses = new Dictionary<string, string>();
-            responses.Add(serviceAddress + "?q=azure%2Bb&skip=0&take=1&prerelease=false&supportedFramework=portable-net45%2Bwin8",
+            responses.Add(serviceAddress + "?q=azure%20b&skip=0&take=1&prerelease=false&supportedFramework=.NETFramework,Version=v4.5",
                 TestUtility.GetResource("NuGet.Protocol.Core.v3.Tests.compiler.resources.V3Search.json", GetType()));
             responses.Add(serviceAddress, string.Empty);
 
@@ -35,11 +35,11 @@ namespace NuGet.Protocol.Core.v3.Tests
             var searchFilter = new SearchFilter()
             {
                 IncludePrerelease = false,
-                SupportedFrameworks = new string[] { "portable-net45+win8" }
+                SupportedFrameworks = new string[] { ".NETFramework,Version=v4.5" }
             };
 
             // Act
-            var packages = await searchResource.Search("azure+b", searchFilter, 0, 1, NullLogger.Instance, CancellationToken.None);
+            var packages = await searchResource.Search("azure b", searchFilter, 0, 1, NullLogger.Instance, CancellationToken.None);
             var packagesArray = packages.ToArray();
 
             // Assert

@@ -1,12 +1,18 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
+using NuGet.Common;
+using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.Versioning;
 
@@ -62,7 +68,9 @@ namespace NuGet.Test.Utility
             var version = packageContext.Version;
             var runtimeJson = packageContext.RuntimeJson;
 
-            var file = new FileInfo(Path.Combine(repositoryDir, $"{id}.{version}.nupkg"));
+            var pathResolver = new VersionFolderPathResolver(null);
+            var packagePath = Path.Combine(repositoryDir, $"{id}.{version.ToString()}.nupkg");
+            var file = new FileInfo(packagePath);
 
             file.Directory.Create();
 
@@ -82,7 +90,7 @@ namespace NuGet.Test.Utility
                     zip.AddEntry("lib/net45/a.dll", new byte[] { 0 });
                     zip.AddEntry("lib/netstandard1.0/a.dll", new byte[] { 0 });
                     zip.AddEntry($"build/net45/{id}.targets", @"<targets />", Encoding.UTF8);
-                    zip.AddEntry("native/net45/a.dll", new byte[] { 0 });
+                    zip.AddEntry("runtimes/any/native/a.dll", new byte[] { 0 });
                     zip.AddEntry("tools/a.exe", new byte[] { 0 });
                 }
 
@@ -95,7 +103,7 @@ namespace NuGet.Test.Utility
                         <package>
                         <metadata>
                             <id>{id}</id>
-                            <version>{version}</version>
+                            <version>{version.ToString()}</version>
                             <title />
                             <frameworkAssemblies>
                                 <frameworkAssembly assemblyName=""System.Runtime"" />
@@ -109,6 +117,13 @@ namespace NuGet.Test.Utility
                         </package>";
 
                 var xml = XDocument.Parse(nuspecXml);
+
+                // Add the min client version if it exists
+                if (!string.IsNullOrEmpty(packageContext.MinClientVersion))
+                {
+                    xml.Root.Element(XName.Get("metadata"))
+                        .Add(new XAttribute(XName.Get("minClientVersion"), packageContext.MinClientVersion));
+                }
 
                 var dependencies = packageContext.Dependencies.Select(e =>
                     new PackageDependency(
@@ -149,6 +164,25 @@ namespace NuGet.Test.Utility
                     }
                 }
 
+                if (packageContext.PackageTypes.Any())
+                {
+                    var metadata = xml.Element("package").Element("metadata");
+                    var packageTypes = new XElement("packageTypes");
+                    metadata.Add(packageTypes);
+
+                    foreach (var packageType in packageContext.PackageTypes)
+                    {
+                        var packageTypeElement = new XElement("packageType");
+                        packageTypeElement.Add(new XAttribute("name", packageType.Name));
+                        if (packageType.Version != PackageType.EmptyVersion)
+                        {
+                            packageTypeElement.Add(new XAttribute("version", packageType.Version));
+                        }
+
+                        packageTypes.Add(packageTypeElement);
+                    }
+                }
+
                 zip.AddEntry($"{id}.nuspec", xml.ToString(), Encoding.UTF8);
             }
 
@@ -168,14 +202,14 @@ namespace NuGet.Test.Utility
         /// </summary>
         public static void CreatePackages(List<SimpleTestPackageContext> packages, string repositoryPath)
         {
-            var done = new HashSet<PackageIdentity>();
+            var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var toCreate = new Stack<SimpleTestPackageContext>(packages);
 
             while (toCreate.Count > 0)
             {
                 var package = toCreate.Pop();
 
-                if (done.Add(package.Identity))
+                if (done.Add($"{package.Id}|{package.Version.ToString()}"))
                 {
                     CreateFullPackage(
                         repositoryPath,
@@ -186,6 +220,232 @@ namespace NuGet.Test.Utility
                         toCreate.Push(dep);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Create an unzipped repository folder of nupkgs
+        /// </summary>
+        public static void CreateFolderFeedUnzip(string root, params PackageIdentity[] packages)
+        {
+            var contexts = packages.Select(package => new SimpleTestPackageContext(package)).ToList();
+
+            foreach (var context in contexts)
+            {
+                var name = $"{context.Id}.{context.Version.ToString()}";
+
+                var nupkgPath = Path.Combine(root, name + ".nupkg");
+                var folder = Path.Combine(root, name);
+                var nuspecPath = Path.Combine(root, name, name + ".nuspec");
+
+                Directory.CreateDirectory(folder);
+
+                using (var tempRoot = TestFileSystemUtility.CreateRandomTestFolder())
+                {
+                    CreatePackages(tempRoot, context);
+
+                    var input = Directory.GetFiles(tempRoot).Single();
+
+                    using (var zip = new ZipArchive(File.OpenRead(input)))
+                    {
+                        zip.ExtractAll(folder);
+                    }
+
+                    foreach (var file in Directory.GetFiles(folder))
+                    {
+                        if (file.EndsWith(".nuspec"))
+                        {
+                            File.Move(file, nuspecPath);
+                        }
+
+                        // Delete the rest
+                        File.Delete(file);
+                    }
+
+                    // move the nupkg
+                    File.Move(input, nupkgPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create a v2 folder of nupkgs
+        /// </summary>
+        public static void CreateFolderFeedV2(string root, params PackageIdentity[] packages)
+        {
+            var contexts = packages.Select(package => new SimpleTestPackageContext(package)).ToList();
+
+            CreatePackages(contexts, root);
+        }
+
+        /// <summary>
+        /// Create a v3 folder of nupkgs
+        /// </summary>
+        public static Task CreateFolderFeedV3(string root, params PackageIdentity[] packages)
+        {
+            return CreateFolderFeedV3(root, PackageSaveMode.Nupkg | PackageSaveMode.Nuspec, packages);
+        }
+
+        /// <summary>
+        /// Create a v3 folder of nupkgs
+        /// </summary>
+        public static async Task CreateFolderFeedV3(string root, PackageSaveMode saveMode, params PackageIdentity[] packages)
+        {
+            var contexts = packages.Select(p => new SimpleTestPackageContext(p)).ToArray();
+
+            await CreateFolderFeedV3(root, saveMode, contexts);
+        }
+
+        /// <summary>
+        /// Create a v3 folder of nupkgs
+        /// </summary>
+        public static async Task CreateFolderFeedV3(string root, PackageSaveMode saveMode, params SimpleTestPackageContext[] contexts)
+        {
+            using (var tempRoot = TestFileSystemUtility.CreateRandomTestFolder())
+            {
+                CreatePackages(tempRoot, contexts);
+
+                await CreateFolderFeedV3(root, saveMode, Directory.GetFiles(tempRoot));
+            }
+        }
+
+        /// <summary>
+        /// Create a v3 folder of nupkgs
+        /// </summary>
+        public static async Task CreateFolderFeedV3(string root, PackageSaveMode saveMode, params string[] nupkgPaths)
+        {
+            var pathResolver = new VersionFolderPathResolver(root);
+
+            foreach (var file in nupkgPaths)
+            {
+                PackageIdentity identity = null;
+
+                using (var reader = new PackageArchiveReader(File.OpenRead(file)))
+                {
+                    identity = reader.GetIdentity();
+                }
+
+                if (!File.Exists(pathResolver.GetHashPath(identity.Id, identity.Version)))
+                {
+                    using (var fileStream = File.OpenRead(file))
+                    {
+                        await PackageExtractor.InstallFromSourceAsync((stream) =>
+                            fileStream.CopyToAsync(stream, 4096, CancellationToken.None),
+                            new VersionFolderPathContext(
+                                identity,
+                                root,
+                                NullLogger.Instance,
+                                saveMode,
+                                XmlDocFileSaveMode.None),
+                                CancellationToken.None);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create a packagets.config folder of nupkgs
+        /// </summary>
+        public static void CreateFolderFeedPackagesConfig(string root, params PackageIdentity[] packages)
+        {
+            var contexts = packages.Select(p => new SimpleTestPackageContext(p)).ToArray();
+
+            CreateFolderFeedPackagesConfig(root, contexts);
+        }
+
+        /// <summary>
+        /// Create a packagets.config folder of nupkgs
+        /// </summary>
+        public static void CreateFolderFeedPackagesConfig(string root, params SimpleTestPackageContext[] contexts)
+        {
+            using (var tempRoot = TestFileSystemUtility.CreateRandomTestFolder())
+            {
+                CreatePackages(tempRoot, contexts);
+
+                CreateFolderFeedPackagesConfig(root, Directory.GetFiles(tempRoot));
+            }
+        }
+
+        /// <summary>
+        /// Create a packagets.config folder of nupkgs
+        /// </summary>
+        public static void CreateFolderFeedPackagesConfig(string root, params string[] nupkgPaths)
+        {
+            var resolver = new PackagePathResolver(root);
+            var context = new PackageExtractionContext(NullLogger.Instance);
+
+            foreach (var path in nupkgPaths)
+            {
+                using (var stream = File.OpenRead(path))
+                {
+                    PackageExtractor.ExtractPackage(stream, resolver, context, CancellationToken.None);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create packages with PackageBuilder, this includes OPC support.
+        /// </summary>
+        public static void CreateOPCPackage(SimpleTestPackageContext package, string repositoryPath)
+        {
+            CreateOPCPackages(new List<SimpleTestPackageContext>() { package }, repositoryPath);
+        }
+
+        /// <summary>
+        /// Create packages with PackageBuilder, this includes OPC support.
+        /// </summary>
+        public static void CreateOPCPackages(List<SimpleTestPackageContext> packages, string repositoryPath)
+        {
+            foreach (var package in packages)
+            {
+                var builder = new Packaging.PackageBuilder()
+                {
+                    Id = package.Id,
+                    Version = NuGetVersion.Parse(package.Version),
+                    Description = "Description.",
+                };
+
+                builder.Authors.Add("testAuthor");
+
+                foreach (var file in package.Files)
+                {
+                    builder.Files.Add(CreatePackageFile(file.Key));
+                }
+
+                using (var stream = File.OpenWrite(Path.Combine(repositoryPath, $"{package.Identity.Id}.{package.Identity.Version.ToString()}.nupkg")))
+                {
+                    builder.Save(stream);
+                }
+            }
+        }
+
+        private static IPackageFile CreatePackageFile(string name)
+        {
+            InMemoryFile file = new InMemoryFile();
+            file.Path = name;
+            file.Stream = new MemoryStream();
+
+            string effectivePath;
+            var fx = FrameworkNameUtility.ParseFrameworkNameFromFilePath(name, out effectivePath);
+            file.EffectivePath = effectivePath;
+            file.TargetFramework = fx;
+
+            return file;
+        }
+
+        private class InMemoryFile : IPackageFile
+        {
+            public string EffectivePath { get; set; }
+
+            public string Path { get; set; }
+
+            public FrameworkName TargetFramework { get; set; }
+
+            public MemoryStream Stream { get; set; }
+
+            public Stream GetStream()
+            {
+                return Stream;
             }
         }
     }

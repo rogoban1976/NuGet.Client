@@ -3,7 +3,8 @@ using System.Globalization;
 using System.IO;
 using Microsoft.Dnx.Runtime.Common.CommandLine;
 using NuGet.Commands;
-using NuGet.Logging;
+using NuGet.Common;
+using NuGet.Configuration;
 using NuGet.Versioning;
 
 namespace NuGet.CommandLine.XPlat
@@ -25,6 +26,11 @@ namespace NuGet.CommandLine.XPlat
                     "-b|--base-path <basePath>",
                     Strings.BasePath_Description,
                     CommandOptionType.SingleValue);
+
+                var build = pack.Option(
+                    "--build",
+                    Strings.Build_Description,
+                    CommandOptionType.NoValue);
 
                 var exclude = pack.Option(
                     "--exclude",
@@ -55,6 +61,16 @@ namespace NuGet.CommandLine.XPlat
                     "-o|--output-directory <outputDirectory>",
                     Strings.OutputDirectory_Description,
                     CommandOptionType.SingleValue);
+
+                var properties = pack.Option(
+                    "-p|--properties <properties>",
+                    Strings.OutputDirectory_Description,
+                    CommandOptionType.SingleValue);
+
+                var serviceable = pack.Option(
+                    "--serviceable",
+                    Strings.Serviceable_Description,
+                    CommandOptionType.NoValue);
 
                 var suffix = pack.Option(
                     "--suffix <suffix>",
@@ -88,16 +104,19 @@ namespace NuGet.CommandLine.XPlat
                     packArgs.Logger = logger;
                     packArgs.Arguments = arguments.Values;
                     packArgs.Path = PackCommandRunner.GetInputFile(packArgs);
+                    packArgs.OutputDirectory = outputDirectory.Value();
+                    packArgs.BasePath = basePath.Value();
+
+                    // Set the current directory if the files being packed are in a different directory
+                    PackCommandRunner.SetupCurrentDirectory(packArgs);
 
                     logger.LogInformation(string.Format(CultureInfo.CurrentCulture, Strings.PackageCommandAttemptingToBuildPackage, Path.GetFileName(packArgs.Path)));
 
-                    // If the BasePath is not specified, use the directory of the input file (nuspec / proj) file
-                    packArgs.BasePath = !basePath.HasValue() ? Path.GetDirectoryName(Path.GetFullPath(packArgs.Path)) : basePath.Value();
-                    packArgs.BasePath = packArgs.BasePath.TrimEnd(Path.DirectorySeparatorChar);
-
+                    packArgs.Build = build.HasValue();
                     packArgs.Exclude = exclude.Values;
                     packArgs.ExcludeEmptyDirectories = excludeEmpty.HasValue();
                     packArgs.LogLevel = XPlatUtility.GetLogLevel(verbosity);
+
                     if (minClientVersion.HasValue())
                     {
                         Version version;
@@ -108,11 +127,24 @@ namespace NuGet.CommandLine.XPlat
                         packArgs.MinClientVersion = version;
                     }
 
-                    packArgs.MachineWideSettings = new CommandLineXPlatMachineWideSetting();
+                    packArgs.MachineWideSettings = new XPlatMachineWideSetting();
                     packArgs.MsBuildDirectory = new Lazy<string>(() => string.Empty);
                     packArgs.NoDefaultExcludes = noDefaultExcludes.HasValue();
                     packArgs.NoPackageAnalysis = noPackageAnalysis.HasValue();
-                    packArgs.OutputDirectory = outputDirectory.Value();
+
+                    if (properties.HasValue())
+                    {
+                        foreach (var property in properties.Value().Split(';'))
+                        {
+                            int index = property.IndexOf('=');
+                            if (index > 0 && index < property.Length - 1)
+                            {
+                                packArgs.Properties.Add(property.Substring(0, index), property.Substring(index + 1));
+                            }
+                        }
+                    }
+
+                    packArgs.Serviceable = serviceable.HasValue();
                     packArgs.Suffix = suffix.Value();
                     packArgs.Symbols = symbols.HasValue();
                     if (versionOption.HasValue())

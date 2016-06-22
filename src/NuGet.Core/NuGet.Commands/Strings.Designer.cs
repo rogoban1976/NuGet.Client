@@ -78,6 +78,15 @@ namespace NuGet.Commands {
         }
         
         /// <summary>
+        ///    Looks up a localized string similar to Failed to build using &apos;{0} {1}&apos;..
+        /// </summary>
+        public static string Error_BuildFailed {
+            get {
+                return ResourceManager.GetString("Error_BuildFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///    Looks up a localized string similar to Cannot find version of msbuild..
         /// </summary>
         public static string Error_CannotFindMsbuild {
@@ -92,6 +101,33 @@ namespace NuGet.Commands {
         public static string Error_InvalidCommandLineInput {
             get {
                 return ResourceManager.GetString("Error_InvalidCommandLineInput", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///    Looks up a localized string similar to Invalid input &apos;{0}&apos;. Valid file names are &apos;packages.config&apos; or &apos;packages.*.config&apos;..
+        /// </summary>
+        public static string Error_InvalidCommandLineInputConfig {
+            get {
+                return ResourceManager.GetString("Error_InvalidCommandLineInputConfig", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///    Looks up a localized string similar to Invalid input &apos;{0}&apos;. Valid file names are &apos;project.json&apos; or &apos;*.project.json&apos;..
+        /// </summary>
+        public static string Error_InvalidCommandLineInputJson {
+            get {
+                return ResourceManager.GetString("Error_InvalidCommandLineInputJson", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///    Looks up a localized string similar to Failed to build package because of an unsupported targetFramework value on &apos;{0}&apos;..
+        /// </summary>
+        public static string Error_InvalidTargetFramework {
+            get {
+                return ResourceManager.GetString("Error_InvalidTargetFramework", resourceCulture);
             }
         }
         
@@ -119,6 +155,15 @@ namespace NuGet.Commands {
         public static string Error_PackageCommandNoFilesForSymbolsPackage {
             get {
                 return ResourceManager.GetString("Error_PackageCommandNoFilesForSymbolsPackage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///    Looks up a localized string similar to Failed to build package. {0}.
+        /// </summary>
+        public static string Error_PackFailed {
+            get {
+                return ResourceManager.GetString("Error_PackFailed", resourceCulture);
             }
         }
         
@@ -168,7 +213,7 @@ namespace NuGet.Commands {
         }
         
         /// <summary>
-        ///    Looks up a localized string similar to Please specify a nuspec, project.json, project file to use.
+        ///    Looks up a localized string similar to Please specify a nuspec, project.json, or project file to use.
         /// </summary>
         public static string InputFileNotSpecified {
             get {

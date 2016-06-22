@@ -5,17 +5,26 @@
   ],
   "description": "NuGet's protocol-level base types used for connecting to API v2 and API v3 repositories.",
   "copyright": "Copyright .NET Foundation. All rights reserved.",
-  "projectUrl": "https://github.com/NuGet/NuGet.Client",
-  "licenseUrl": "https://raw.githubusercontent.com/NuGet/NuGet.Client/dev/LICENSE.txt",
-  "tags": [
-    "nuget protocol"
-  ],
-  "compilationOptions": {
-    "warningsAsErrors": true
+  "packOptions": {
+    "tags": [
+      "nuget protocol"
+    ],
+    "licenseUrl": "https://raw.githubusercontent.com/NuGet/NuGet.Client/dev/LICENSE.txt",
+    "projectUrl": "https://github.com/NuGet/NuGet.Client"
   },
-  "compile": [
-    "../NuGet.Shared/*.cs"
-  ],
+  "buildOptions": {
+    "warningsAsErrors": true,
+    "xmlDoc": true,
+    "nowarn": [
+      "CS1591",
+      "CS1573"
+    ],
+    "compile": {
+      "include": [
+        "../../../Shared/*.cs"
+      ]
+    }
+  },
   "dependencies": {
     "NuGet.Common": {
       "target": "project"
@@ -31,18 +40,28 @@
     "net45": {
       "frameworkAssemblies": {
         "System.Net.Http": ""
+      },
+      "buildOptions": {
+        "define": [
+          "IS_DESKTOP"
+        ]
       }
     },
-    "netstandard1.5": {
+    "netstandard1.3": {
       "dependencies": {
-        "NETStandard.Library": "1.5.0-rc2-23931",
-        "System.Net.Http": "4.0.1-rc2-23931"
+        "NETStandard.Library": "1.6.0-rc3-24128-00",
+        "System.Net.Http": "4.1.0-rc3-24128-00"
       },
       "imports": [
         "dotnet5.6",
         "dnxcore50",
         "portable-net45+win8"
-      ]
+      ],
+      "buildOptions": {
+        "define": [
+          "IS_CORECLR"
+        ]
+      }
     }
   }
 }

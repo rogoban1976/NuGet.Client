@@ -7,7 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
+using NuGet.Protocol;
 using NuGet.Versioning;
 
 namespace NuGet.Protocol
@@ -40,7 +40,7 @@ namespace NuGet.Protocol
             SearchFilter filters,
             int skip,
             int take,
-            Logging.ILogger log,
+            Common.ILogger log,
             CancellationToken cancellationToken)
         {
             var query = await _feedParser.Search(
@@ -62,7 +62,7 @@ namespace NuGet.Protocol
         private IPackageSearchMetadata CreatePackageSearchResult(
             V2FeedPackageInfo package,
             SearchFilter filter,
-            Logging.ILogger log,
+            Common.ILogger log,
             CancellationToken cancellationToken)
         {
             var metadata = new PackageSearchMetadataV2Feed(package);
@@ -73,7 +73,7 @@ namespace NuGet.Protocol
         public async Task<IEnumerable<VersionInfo>> GetVersions(
             V2FeedPackageInfo package,
             SearchFilter filter,
-            Logging.ILogger log,
+            Common.ILogger log,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -93,7 +93,12 @@ namespace NuGet.Protocol
             {
                 if (uniqueVersions.Add(versionPackage.Version))
                 {
-                    results.Add(new VersionInfo(versionPackage.Version, versionPackage.DownloadCount));
+                    var versionInfo = new VersionInfo(versionPackage.Version, versionPackage.DownloadCount)
+                    {
+                        PackageSearchMetadata = new PackageSearchMetadataV2Feed(versionPackage)
+                    };
+
+                    results.Add(versionInfo);
                 }
             }
             return results;

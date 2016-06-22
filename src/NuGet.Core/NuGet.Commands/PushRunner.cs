@@ -1,6 +1,7 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using NuGet.Configuration;
-using NuGet.Logging;
+using NuGet.Common;
 using NuGet.Protocol.Core.Types;
 
 namespace NuGet.Commands
@@ -30,9 +31,18 @@ namespace NuGet.Commands
 
             PackageUpdateResource packageUpdateResource = await CommandRunnerUtility.GetPackageUpdateResource(sourceProvider, source);
 
-            string symbolsSource = !noSymbols
-                ? NuGetConstants.DefaultSymbolServerUrl
-                : string.Empty;
+            // only push to SymbolSource when the actual package is being pushed to the official NuGet.org
+            string symbolsSource = string.Empty;
+
+            Uri sourceUri = packageUpdateResource.SourceUri;
+            if (!noSymbols && !sourceUri.IsFile && sourceUri.IsAbsoluteUri)
+            {
+                if (sourceUri.Host.Equals(NuGetConstants.NuGetHostName, StringComparison.OrdinalIgnoreCase) // e.g. nuget.org
+                    || sourceUri.Host.EndsWith("." + NuGetConstants.NuGetHostName, StringComparison.OrdinalIgnoreCase)) // *.nuget.org, e.g. www.nuget.org
+                {
+                    symbolsSource = NuGetConstants.DefaultSymbolServerUrl;
+                }
+            }
 
             await packageUpdateResource.Push(
                 packagePath,

@@ -505,6 +505,95 @@ namespace NuGet.Packaging.Test
         }
 
         [Fact]
+        public void CreatePackageWithServiceableElement()
+        {
+            // Arrange
+            PackageBuilder builder = new PackageBuilder()
+            {
+                Id = "A",
+                Version = NuGetVersion.Parse("1.0"),
+                Description = "Description",
+                Authors = { "testAuthor" },
+                Serviceable = true,
+                Files =
+                {
+                    CreatePackageFile("content" + Path.DirectorySeparatorChar + "winrt53" + Path.DirectorySeparatorChar + "one.txt")
+                }
+            };
+
+            using (var ms = new MemoryStream())
+            {
+                builder.Save(ms);
+
+                ms.Seek(0, SeekOrigin.Begin);
+
+                var manifestStream = GetManifestStream(ms);
+
+                // Assert
+                Assert.Equal(@"<?xml version=""1.0"" encoding=""utf-8""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0.0</version>
+    <authors>testAuthor</authors>
+    <owners>testAuthor</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Description</description>
+    <serviceable>true</serviceable>
+  </metadata>
+</package>", manifestStream.ReadToEnd());
+            }
+        }
+
+        [Fact]
+        public void CreatePackageWithPackageTypes()
+        {
+            // Arrange
+            PackageBuilder builder = new PackageBuilder()
+            {
+                Id = "A",
+                Version = NuGetVersion.Parse("1.0"),
+                Description = "Description",
+                Authors = { "testAuthor" },
+                PackageTypes = new[]
+                {
+                    new PackageType("foo", new Version(0, 0)),
+                    new PackageType("bar", new Version(2, 0, 0)),
+                },
+                Files =
+                {
+                    CreatePackageFile("content" + Path.DirectorySeparatorChar + "winrt53" + Path.DirectorySeparatorChar + "one.txt")
+                }
+            };
+
+            using (var ms = new MemoryStream())
+            {
+                builder.Save(ms);
+
+                ms.Seek(0, SeekOrigin.Begin);
+
+                var manifestStream = GetManifestStream(ms);
+
+                // Assert
+                Assert.Equal(@"<?xml version=""1.0"" encoding=""utf-8""?>
+<package xmlns=""http://schemas.microsoft.com/packaging/2016/04/nuspec.xsd"">
+  <metadata>
+    <id>A</id>
+    <version>1.0.0</version>
+    <authors>testAuthor</authors>
+    <owners>testAuthor</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Description</description>
+    <packageTypes>
+      <packageType name=""foo"" />
+      <packageType name=""bar"" version=""2.0.0"" />
+    </packageTypes>
+  </metadata>
+</package>", manifestStream.ReadToEnd());
+            }
+        }
+
+        [Fact]
         public void CreatePackageDoesNotUseV4SchemaNamespaceIfContentHasUnsupportedTargetFramework()
         {
             // Arrange
@@ -1225,7 +1314,7 @@ Description is required.");
             string spec4 = @"<?xml version=""1.0"" encoding=""utf-8""?><package><metadata></metadata></package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
@@ -1233,7 +1322,7 @@ Description is required.");
             // Act and Assert
             ExceptionAssert.Throws<XmlException>(() => new PackageBuilder(spec1.AsStream(), null), "Data at the root level is invalid. Line 1, position 1.");
             ExceptionAssert.Throws<XmlException>(() => new PackageBuilder(spec2.AsStream(), null), "Root element is missing.");
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec3.AsStream(), null));
             ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec4.AsStream(), null));
 #else
@@ -1255,14 +1344,52 @@ Description is required.");
   </metadata></package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act & Assert
-#if !NETSTANDARDAPP1_5
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. List of possible elements expected: 'id' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.");
+#if !IS_CORECLR
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. " +
+                "List of possible elements expected: 'id' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'. " +
+                "This validation error occurred in a 'metadata' element.");
+#else
+            ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'id' is missing from the manifest.");
+#endif
+        }
+
+        [Fact]
+        public void WrongCaseIdThrows()
+        {
+            // Arrange
+            string spec = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<package><metadata>
+    <ID>aaa</ID>
+    <version>2.5</version>
+    <authors>Velio Ivanov</authors>
+    <language>en-us</language>
+    <description>This is the Description (With, Comma-Separated, Words, in Parentheses).</description>
+  </metadata></package>";
+
+            // Switch to invariant culture to ensure the error message is in english.
+#if !IS_CORECLR
+            // REVIEW: Unsupported on CoreCLR
+            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
+#endif
+
+            // Act & Assert
+#if !IS_CORECLR
+            var exception = Assert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null));
+            Assert.StartsWith(
+                "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has invalid child element 'ID' " +
+                "in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.",
+                exception.Message);
+            Assert.EndsWith(
+                "This validation error occurred in a 'ID' element.",
+                exception.Message);
 #else
             ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'id' is missing from the manifest.");
 #endif
@@ -1323,14 +1450,18 @@ Description is required.");
   </metadata></package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act & Assert
-#if !NETSTANDARDAPP1_5
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. List of possible elements expected: 'version' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.");
+#if !IS_CORECLR
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. " +
+                "List of possible elements expected: 'version' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'. " +
+                "This validation error occurred in a 'metadata' element.");
 #else
             ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'version' is missing from the manifest.");
 #endif
@@ -1349,14 +1480,18 @@ Description is required.");
   </metadata></package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act & Assert
-#if !NETSTANDARDAPP1_5
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. List of possible elements expected: 'authors' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.");
+#if !IS_CORECLR
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. " + 
+                "List of possible elements expected: 'authors' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'. " +
+                "This validation error occurred in a 'metadata' element.");
 #else
             ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'authors' is missing from the manifest.");
 #endif
@@ -1375,14 +1510,18 @@ Description is required.");
   </metadata></package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act & Assert
-#if !NETSTANDARDAPP1_5
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. List of possible elements expected: 'description' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.");
+#if !IS_CORECLR
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The element 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. " +
+                "List of possible elements expected: 'description' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'. " +
+                "This validation error occurred in a 'metadata' element.");
 #else
             ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'description' is missing from the manifest.");
 #endif
@@ -1392,13 +1531,13 @@ Description is required.");
         public void MalformedDependenciesThrows()
         {
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act & Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // Arrange
             string spec = @"<?xml version=""1.0"" encoding=""utf-8""?>
 <package><metadata>
@@ -1412,7 +1551,10 @@ Description is required.");
     </dependencies>
   </metadata></package>";
 
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The required attribute 'id' is missing.");
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The required attribute 'id' is missing. " +
+                "This validation error occurred in a 'dependency' element.");
 #else
             // Not thrown in CoreCLR
 #endif
@@ -1446,13 +1588,13 @@ Description is required.");
         {
             // Act
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             string spec = @"<?xml version=""1.0"" encoding=""utf-8""?>
 <package><metadata>
     <id>Artem.XmlProviders</id>
@@ -1469,7 +1611,10 @@ Description is required.");
   </files>
 </package>";
 
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The required attribute 'src' is missing.");
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The required attribute 'src' is missing. " +
+                "This validation error occurred in a 'file' element.");
 #else
             // REVIEW: Not thrown in CoreCLR
 #endif
@@ -1480,7 +1625,7 @@ Description is required.");
         {
             // Arrange
             // Act & Assert
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             string spec = @"<?xml version=""1.0"" encoding=""utf-8""?>
 <package><metadata>
     <id>Artem.XmlProviders</id>
@@ -1638,7 +1783,12 @@ Description is required.");
     <language>en-US</language>
     <licenseUrl>http://somesite/somelicense.txt</licenseUrl>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <serviceable>true</serviceable>
     <copyright>2010</copyright>
+    <packageTypes>
+        <packageType name=""foo"" />
+        <packageType name=""bar"" version=""2.0.0"" />
+    </packageTypes>
     <dependencies>
         <dependency id=""A"" version=""[1.0]"" />
         <dependency id=""B"" version=""[1.0, 2.5)"" />
@@ -1661,9 +1811,15 @@ Description is required.");
             Assert.Equal("This is the Description (With, Comma-Separated, Words, in Parentheses).", builder.Description);
             Assert.Equal(new Uri("http://somesite/somelicense.txt"), builder.LicenseUrl);
             Assert.True(builder.RequireLicenseAcceptance);
+            Assert.True(builder.Serviceable);
+            Assert.Equal(2, builder.PackageTypes.Count);
+            Assert.Equal("foo", builder.PackageTypes.ElementAt(0).Name);
+            Assert.Equal(new Version(0, 0), builder.PackageTypes.ElementAt(0).Version);
+            Assert.Equal("bar", builder.PackageTypes.ElementAt(1).Name);
+            Assert.Equal(new Version(2, 0, 0), builder.PackageTypes.ElementAt(1).Version);
 
             Assert.Equal(1, builder.DependencyGroups.Count);
-            var dependencyGroup = builder.DependencyGroups[0];
+            var dependencyGroup = builder.DependencyGroups.ElementAt(0);
 
             IDictionary<string, VersionRange> dependencies = dependencyGroup.Packages.ToDictionary(p => p.Id, p => p.VersionRange);
             // <dependency id="A" version="[1.0]" />
@@ -1702,7 +1858,7 @@ Description is required.");
 
             // Assert
             Assert.Equal(1, builder.DependencyGroups.Count);
-            var dependencyGroup = builder.DependencyGroups[0];
+            var dependencyGroup = builder.DependencyGroups.ElementAt(0);
 
             Assert.Equal(NuGetFramework.Parse("Silverlight, Version=4.0"), dependencyGroup.TargetFramework);
             var dependencies = dependencyGroup.Packages.ToList();
@@ -1741,9 +1897,9 @@ Description is required.");
 
             // Assert
             Assert.Equal(3, builder.DependencyGroups.Count);
-            var dependencyGroup1 = builder.DependencyGroups[0];
-            var dependencyGroup2 = builder.DependencyGroups[1];
-            var dependencyGroup3 = builder.DependencyGroups[2];
+            var dependencyGroup1 = builder.DependencyGroups.ElementAt(0);
+            var dependencyGroup2 = builder.DependencyGroups.ElementAt(1);
+            var dependencyGroup3 = builder.DependencyGroups.ElementAt(2);
 
             Assert.Equal(NuGetFramework.Parse("Silverlight, Version=4.0"), dependencyGroup1.TargetFramework);
             var dependencies1 = dependencyGroup1.Packages.ToList();
@@ -1987,7 +2143,7 @@ Enabling license acceptance requires a license url.");
 </package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
@@ -2067,7 +2223,7 @@ Enabling license acceptance requires a license url.");
             ExceptionAssert.ThrowsArgumentException(() => builder.Save(new MemoryStream()), "The package ID 'brainf%2ack' contains invalid characters. Examples of valid package IDs include 'MyPackage' and 'MyPackage.Sample'.");
         }
 
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
         [Fact]
         public void ReadingPackageWithUnknownSchemaThrows()
         {
@@ -2254,14 +2410,18 @@ Enabling license acceptance requires a license url.");
 </package>";
 
             // Switch to invariant culture to ensure the error message is in english.
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // REVIEW: Unsupported on CoreCLR
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
 #endif
 
             // Act
-#if !NETSTANDARDAPP1_5
-            ExceptionAssert.Throws<InvalidOperationException>(() => new PackageBuilder(spec.AsStream(), null), "The element 'package' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. List of possible elements expected: 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'.");
+#if !IS_CORECLR
+            ExceptionAssert.Throws<InvalidOperationException>(
+                () => new PackageBuilder(spec.AsStream(), null),
+                "The element 'package' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd' has incomplete content. " +
+                "List of possible elements expected: 'metadata' in namespace 'http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd'. " +
+                "This validation error occurred in a 'package' element.");
 #else
             ExceptionAssert.Throws<InvalidDataException>(() => new PackageBuilder(spec.AsStream(), null), "The required element 'metadata' is missing from the manifest.");
 #endif
@@ -2309,6 +2469,51 @@ Enabling license acceptance requires a license url.");
                     Assert.EndsWith(@".psmdcp", files[7]);
 
                     Assert.Equal(@"test.nuspec", files[8]);
+                }
+            }
+        }
+
+        [Fact]
+        public void PackageBuilderWorksWithFileNameWithoutAnExtension()
+        {
+            // Arrange
+            var fileNames = new[] {
+                        @"myfile",
+                    };
+
+            // Act
+            var builder = new PackageBuilder { Id = "test", Version = NuGetVersion.Parse("1.0"), Description = "test" };
+            builder.Authors.Add("test");
+            foreach (var name in fileNames)
+            {
+                builder.Files.Add(CreatePackageFile(name.Replace('\\', Path.DirectorySeparatorChar)));
+            }
+
+            // Assert
+            using (MemoryStream stream = new MemoryStream())
+            {
+                builder.Save(stream);
+
+                using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
+                {
+                    var files = archive.GetFiles().OrderBy(s => s).ToArray();
+
+                    // Linux sorts the first two in different order than Windows
+                    Assert.Contains<string>(@"[Content_Types].xml", files);
+                    Assert.Contains<string>(@"_rels/.rels", files);
+                    Assert.Equal(@"myfile", files[2]);
+
+                    Assert.StartsWith(@"package/services/metadata/core-properties/", files[3]);
+                    Assert.EndsWith(@".psmdcp", files[3]);
+
+                    Assert.Equal(@"test.nuspec", files[4]);
+
+                    var contentTypesReader
+                        = new StreamReader(archive.Entries.Single(file => file.FullName == @"[Content_Types].xml").Open());
+                    var contentTypesXml = XDocument.Parse(contentTypesReader.ReadToEnd());
+                    var node = contentTypesXml.Descendants().Single(e => e.Name.LocalName == "Override");
+
+                    Assert.StartsWith(@"<Override PartName=""/myfile"" ContentType=""application/octet""", node.ToString());
                 }
             }
         }

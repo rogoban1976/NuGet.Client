@@ -31,13 +31,15 @@ namespace NuGet.PackageManagement.VisualStudio
     public class BuildIntegratedProjectSystem : BuildIntegratedNuGetProject
     {
         private IScriptExecutor _scriptExecutor;
+        private IVsProjectBuildSystem _buildSystem;
 
         public BuildIntegratedProjectSystem(
             string jsonConfigPath,
+            string msbuildProjectFilePath,
             EnvDTEProject envDTEProject,
             IMSBuildNuGetProjectSystem msbuildProjectSystem,
             string uniqueName)
-            : base(jsonConfigPath, msbuildProjectSystem)
+            : base(jsonConfigPath, msbuildProjectFilePath, msbuildProjectSystem)
         {
             InternalMetadata.Add(NuGetProjectMetadataKeys.UniqueName, uniqueName);
 
@@ -59,6 +61,29 @@ namespace NuGet.PackageManagement.VisualStudio
                 }
                 return _scriptExecutor;
             }
+        }
+
+        public IVsProjectBuildSystem ProjectBuildSystem
+        {
+            get
+            {
+                if (_buildSystem == null)
+                {
+                    _buildSystem = EnvDTEProjectUtility.GetVsProjectBuildSystem(EnvDTEProject);
+                }
+
+                return _buildSystem;
+            }
+        }
+
+        public override void BeginProcessing()
+        {
+            ProjectBuildSystem?.StartBatchEdit();
+        }
+
+        public override void EndProcessing()
+        {
+            ProjectBuildSystem?.EndBatchEdit();
         }
 
         /// <summary>
@@ -97,9 +122,9 @@ namespace NuGet.PackageManagement.VisualStudio
                 var projectFileFullPath = dteReference.Path;
                 var project = dteReference.Project;
 
-                if (!uniqueNames.Add(projectFileFullPath))
+                if (string.IsNullOrEmpty(projectFileFullPath) || !uniqueNames.Add(projectFileFullPath))
                 {
-                    // This has already been processed
+                    // This has already been processed or does not exist
                     continue;
                 }
 
@@ -214,7 +239,8 @@ namespace NuGet.PackageManagement.VisualStudio
                         var childName = EnvDTEProjectUtility.GetFullProjectPath(childReference.SourceProject);
 
                         // Skip projects which have ReferenceOutputAssembly=false
-                        if (!excludedProjects.Contains(childName, StringComparer.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(childName)
+                            && !excludedProjects.Contains(childName, StringComparer.OrdinalIgnoreCase))
                         {
                             childReferences.Add(childName);
 
@@ -297,10 +323,14 @@ namespace NuGet.PackageManagement.VisualStudio
                         if (pathToProject.TryGetValue(xProjPath, out xProjDTE))
                         {
                             var xProjFullPath = EnvDTEProjectUtility.GetFullProjectPath(xProjDTE);
-                            childReferences.Add(xProjFullPath);
 
-                            // Continue walking this project if it has not been walked already
-                            result.ToProcess.Add(new DTEReference(xProjDTE, xProjFullPath));
+                            if (!string.IsNullOrEmpty(xProjFullPath))
+                            {
+                                childReferences.Add(xProjFullPath);
+
+                                // Continue walking this project if it has not been walked already
+                                result.ToProcess.Add(new DTEReference(xProjDTE, xProjFullPath));
+                            }
                         }
                     }
                 }

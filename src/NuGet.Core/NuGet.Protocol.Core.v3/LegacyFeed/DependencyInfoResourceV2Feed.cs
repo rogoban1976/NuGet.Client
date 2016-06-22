@@ -4,13 +4,11 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NuGet.Common;
 using NuGet.Frameworks;
-using NuGet.Logging;
 using NuGet.Packaging.Core;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 using NuGet.Versioning;
-using Strings = NuGet.Protocol.Core.v3.Strings;
 
 namespace NuGet.Protocol
 {

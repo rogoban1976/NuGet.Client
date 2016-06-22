@@ -7,7 +7,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.Protocol
 {
@@ -41,7 +40,7 @@ namespace NuGet.Protocol
             string packageId,
             bool includePrerelease,
             bool includeUnlisted,
-            Logging.ILogger log,
+            Common.ILogger log,
             CancellationToken token)
         {
             var packages = await _feedParser.FindPackagesByIdAsync(packageId, includeUnlisted, includePrerelease, log, token);

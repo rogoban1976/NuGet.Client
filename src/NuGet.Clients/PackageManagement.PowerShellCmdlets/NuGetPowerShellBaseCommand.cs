@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using EnvDTE;
 using Microsoft.VisualStudio.Threading;
+using NuGet.Common;
 using NuGet.PackageManagement.UI;
 using NuGet.PackageManagement.VisualStudio;
 using NuGet.Packaging;
@@ -74,6 +75,8 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
             {
                 ExecutionContext = new IDEExecutionContext(_commonOperations);
             }
+
+            ActivityCorrelationContext.StartNew();
         }
 
         #region Properties
@@ -85,11 +88,14 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
         /// </summary>
         protected NuGetPackageManager PackageManager
         {
-            get { return new NuGetPackageManager(
-                _sourceRepositoryProvider,
-                ConfigSettings,
-                VsSolutionManager,
-                _deleteOnRestartManager); }
+            get
+            {
+                return new NuGetPackageManager(
+                    _sourceRepositoryProvider,
+                    ConfigSettings,
+                    VsSolutionManager,
+                    _deleteOnRestartManager);
+            }
         }
 
         /// <summary>
@@ -190,11 +196,19 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
             get { return this; }
         }
 
+        /// <summary>
+        /// Determine if needs to log total time elapsed or not
+        /// </summary>
+        protected virtual bool IsLoggingTimeDisabled { get; }
+
         #endregion Properties
 
         [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes", Justification = "We want to display friendly message to the console.")]
         protected override sealed void ProcessRecord()
         {
+            var stopWatch = new Stopwatch();
+            stopWatch.Start();
+
             try
             {
                 ProcessRecordCore();
@@ -209,6 +223,14 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
             finally
             {
                 UnsubscribeEvents();
+            }
+
+            stopWatch.Stop();
+
+            // Log total time elapsed except for Tab command
+            if (!IsLoggingTimeDisabled)
+            {
+                LogCore(ProjectManagement.MessageLevel.Info, string.Format(CultureInfo.CurrentCulture, Resources.Cmdlet_TotalTime, stopWatch.Elapsed));
             }
         }
 
@@ -298,39 +320,32 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
                 throw new ArgumentNullException("source");
             }
 
-            var packageSource = new Configuration.PackageSource(source);
-            var repository = _sourceRepositoryProvider.CreateRepository(packageSource);
-            var resource = repository.GetResource<PackageSearchResource>();
-
-            // resource can be null here for relative path package source.
-            if (resource == null)
+            // Translate a relative path to an absolute path.
+            Uri sourceUri;
+            if (Uri.TryCreate(source, UriKind.Relative, out sourceUri))
             {
-                Uri uri;
-                // if it's not an absolute path, treat it as relative path
-                if (Uri.TryCreate(source, UriKind.Relative, out uri))
+                string outputPath;
+                bool? exists;
+                string errorMessage;
+                if (TryTranslatePSPath(source, out outputPath, out exists, out errorMessage)
+                    && exists == true)
                 {
-                    string outputPath;
-                    bool? exists;
-                    string errorMessage;
-                    // translate relative path to absolute path
-                    if (TryTranslatePSPath(source, out outputPath, out exists, out errorMessage)
-                        && exists == true)
-                    {
-                        source = outputPath;
-                        packageSource = new Configuration.PackageSource(outputPath);
-                    }
+                    source = outputPath;
                 }
             }
 
-            var sourceRepo = _sourceRepositoryProvider.CreateRepository(packageSource);
+            var packageSource = new Configuration.PackageSource(source);
+            var repository = _sourceRepositoryProvider.CreateRepository(packageSource);
+            var resource = repository.GetResource<PackageSearchResource>();
+            
             // Right now if packageSource is invalid, CreateRepository will not throw. Instead, resource returned is null.
-            var newResource = repository.GetResource<PackageSearchResource>();
-            if (newResource == null)
+            if (resource == null)
             {
                 // Try to create Uri again to throw UriFormat exception for invalid source input.
                 new Uri(source);
             }
-            return sourceRepo;
+
+            return repository;
         }
 
         /// <summary>
@@ -544,7 +559,17 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
         /// <summary>
         /// Get list of packages from the remote package source. Used for Get-Package -ListAvailable.
         /// </summary>
-        protected IEnumerable<IPackageSearchMetadata> GetPackagesFromRemoteSource(string searchString, bool includePrerelease)
+        /// <param name="searchString">The search string to use for filtering.</param>
+        /// <param name="includePrerelease">Whether or not to include prerelease packages in the results.</param>
+        /// <param name="handleError">
+        /// An action for handling errors during the enumeration of the returned results. The
+        /// parameter is the error message. This action is never called by multiple threads at once.
+        /// </param>
+        /// <returns>The lazy sequence of package search metadata.</returns>
+        protected IEnumerable<IPackageSearchMetadata> GetPackagesFromRemoteSource(
+            string searchString,
+            bool includePrerelease,
+            Action<string> handleError)
         {
             var searchFilter = new SearchFilter
             {
@@ -553,32 +578,47 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
                 IncludeDelisted = false
             };
 
-            var packageFeed = new MultiSourcePackageFeed(PrimarySourceRepositories, logger: null);
+            var packageFeed = new MultiSourcePackageFeed(PrimarySourceRepositories, logger: null); 
             var searchTask = packageFeed.SearchAsync(searchString, searchFilter, Token);
-            return PackageFeedEnumerator.Enumerate(packageFeed, searchTask, Token);
+
+            return PackageFeedEnumerator.Enumerate(
+                packageFeed,
+                searchTask,
+                (source, exception) =>
+                {
+                    var message = string.Format(
+                          CultureInfo.CurrentCulture,
+                          Resources.Cmdlet_FailedToSearchSource,
+                          source,
+                          Environment.NewLine,
+                          ExceptionUtilities.DisplayMessage(exception));
+
+                    handleError(message);
+                },
+                Token);
         }
 
         protected async Task<IEnumerable<IPackageSearchMetadata>> GetPackagesFromRemoteSourceAsync(string packageId, bool includePrerelease)
         {
-            var metadataProvider = new MultiSourcePackageMetadataProvider(PrimarySourceRepositories, optionalLocalRepository: null, optionalGlobalLocalRepository: null, logger: Logging.NullLogger.Instance);
+            var metadataProvider = new MultiSourcePackageMetadataProvider(PrimarySourceRepositories, optionalLocalRepository: null, optionalGlobalLocalRepositories: null, projects: new NuGetProject[] { Project }, isSolution: false, logger: Common.NullLogger.Instance);
             return await metadataProvider.GetPackageMetadataListAsync(packageId, includePrerelease, false, Token);
         }
 
         protected async Task<IPackageSearchMetadata> GetLatestPackageFromRemoteSourceAsync(PackageIdentity identity, bool includePrerelease)
         {
-            var metadataProvider = new MultiSourcePackageMetadataProvider(PrimarySourceRepositories, optionalLocalRepository: null, optionalGlobalLocalRepository: null, logger: Logging.NullLogger.Instance);
+            var metadataProvider = new MultiSourcePackageMetadataProvider(PrimarySourceRepositories, optionalLocalRepository: null, optionalGlobalLocalRepositories: null, projects: new NuGetProject[] { Project }, isSolution: false, logger: Common.NullLogger.Instance);
             return await metadataProvider.GetLatestPackageMetadataAsync(identity, includePrerelease, Token);
         }
 
         protected async Task<IEnumerable<string>> GetPackageIdsFromRemoteSourceAsync(string idPrefix, bool includePrerelease)
         {
-            var autoCompleteProvider = new MultiSourceAutoCompleteProvider(PrimarySourceRepositories, logger: Logging.NullLogger.Instance);
+            var autoCompleteProvider = new MultiSourceAutoCompleteProvider(PrimarySourceRepositories, logger: Common.NullLogger.Instance);
             return await autoCompleteProvider.IdStartsWithAsync(idPrefix, includePrerelease, Token);
         }
 
         protected async Task<IEnumerable<NuGetVersion>> GetPackageVersionsFromRemoteSourceAsync(string id, string versionPrefix, bool includePrerelease)
         {
-            var autoCompleteProvider = new MultiSourceAutoCompleteProvider(PrimarySourceRepositories, logger: Logging.NullLogger.Instance);
+            var autoCompleteProvider = new MultiSourceAutoCompleteProvider(PrimarySourceRepositories, logger: Common.NullLogger.Instance);
             var results = await autoCompleteProvider.VersionStartsWithAsync(id, versionPrefix, includePrerelease, Token);
             return results?.OrderByDescending(v => v).ToArray();
         }
@@ -869,8 +909,12 @@ namespace NuGet.PackageManagement.PowerShellCmdlets
         /// <param name="args"></param>
         public void Log(ProjectManagement.MessageLevel level, string message, params object[] args)
         {
-            string formattedMessage = String.Format(CultureInfo.CurrentCulture, message, args);
-            BlockingCollection.Add(new LogMessage(level, formattedMessage));
+            if (args.Length > 0)
+            {
+                message = string.Format(CultureInfo.CurrentCulture, message, args);
+            }
+
+            BlockingCollection.Add(new LogMessage(level, message));
         }
 
         /// <summary>

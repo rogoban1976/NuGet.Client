@@ -8,8 +8,8 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NuGet.Common;
 using NuGet.Frameworks;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.Versioning;
@@ -23,7 +23,6 @@ namespace NuGet.ProjectModel
 
         private static readonly char[] PathSplitChars = new[] { LockFile.DirectorySeparatorChar };
 
-        private const string LockedProperty = "locked";
         private const string VersionProperty = "version";
         private const string LibrariesProperty = "libraries";
         private const string TargetsProperty = "targets";
@@ -45,6 +44,7 @@ namespace NuGet.ProjectModel
         private const string FrameworkProperty = "framework";
         private const string ToolsProperty = "tools";
         private const string ProjectFileToolGroupsProperty = "projectFileToolGroups";
+        private const string PackageFoldersProperty = "packageFolders";
 
         // Legacy property names
         private const string RuntimeAssembliesProperty = "runtimeAssemblies";
@@ -122,7 +122,6 @@ namespace NuGet.ProjectModel
                 // Ran into parsing errors, mark it as unlocked and out-of-date
                 return new LockFile
                 {
-                    IsLocked = false,
                     Version = int.MinValue,
                     Path = path
                 };
@@ -168,33 +167,41 @@ namespace NuGet.ProjectModel
         private static LockFile ReadLockFile(JObject cursor)
         {
             var lockFile = new LockFile();
-            lockFile.IsLocked = ReadBool(cursor, LockedProperty, defaultValue: false);
             lockFile.Version = ReadInt(cursor, VersionProperty, defaultValue: int.MinValue);
             lockFile.Libraries = ReadObject(cursor[LibrariesProperty] as JObject, ReadLibrary);
             lockFile.Targets = ReadObject(cursor[TargetsProperty] as JObject, ReadTarget);
             lockFile.ProjectFileDependencyGroups = ReadObject(cursor[ProjectFileDependencyGroupsProperty] as JObject, ReadProjectFileDependencyGroup);
             lockFile.Tools = ReadObject(cursor[ToolsProperty] as JObject, ReadTarget);
             lockFile.ProjectFileToolGroups = ReadObject(cursor[ProjectFileToolGroupsProperty] as JObject, ReadProjectFileDependencyGroup);
+            lockFile.PackageFolders = ReadObject(cursor[PackageFoldersProperty] as JObject, ReadFileItem);
             return lockFile;
         }
 
         private static JObject WriteLockFile(LockFile lockFile)
         {
             var json = new JObject();
-            json[LockedProperty] = new JValue(lockFile.IsLocked);
             json[VersionProperty] = new JValue(lockFile.Version);
             json[TargetsProperty] = WriteObject(lockFile.Targets, WriteTarget);
             json[LibrariesProperty] = WriteObject(lockFile.Libraries, WriteLibrary);
             json[ProjectFileDependencyGroupsProperty] = WriteObject(lockFile.ProjectFileDependencyGroups, WriteProjectFileDependencyGroup);
-            
-            if (lockFile.Tools != null)
+
+            // Avoid writing out the tools section for v1 lock files
+            if (lockFile.Version >= 2)
             {
-                json[ToolsProperty] = WriteObject(lockFile.Tools, WriteTarget);
+                if (lockFile.Tools != null)
+                {
+                    json[ToolsProperty] = WriteObject(lockFile.Tools, WriteTarget);
+                }
+
+                if (lockFile.ProjectFileToolGroups != null)
+                {
+                    json[ProjectFileToolGroupsProperty] = WriteObject(lockFile.ProjectFileToolGroups, WriteProjectFileDependencyGroup);
+                }
             }
-            
-            if (lockFile.ProjectFileToolGroups != null)
+
+            if (lockFile.PackageFolders?.Any() == true)
             {
-                json[ProjectFileToolGroupsProperty] = WriteObject(lockFile.ProjectFileToolGroups, WriteProjectFileDependencyGroup);
+                json[PackageFoldersProperty] = WriteObject(lockFile.PackageFolders, WriteFileItem);
             }
 
             return json;
@@ -251,7 +258,7 @@ namespace NuGet.ProjectModel
 
             WritePathArray(json, FilesProperty, library.Files, WriteString);
             return new JProperty(
-                library.Name + "/" + library.Version.ToString(),
+                library.Name + "/" + library.Version.ToNormalizedString(),
                 json);
         }
 

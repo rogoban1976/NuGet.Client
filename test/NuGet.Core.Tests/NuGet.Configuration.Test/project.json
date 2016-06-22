@@ -12,7 +12,7 @@
     }
   },
   "frameworks": {
-    "netstandardapp1.5": {
+    "netcoreapp1.0": {
       "imports": [
         "dotnet5.6",
         "dnxcore50",
@@ -20,9 +20,18 @@
       ],
       "dependencies": {
         "moq.netcore": "4.4.0-beta8",
-        "NETStandard.Library": "1.5.0-rc2-23931",
-        "dotnet-test-xunit": "1.0.0-dev-128011-22",
-        "System.Threading.Tasks.Parallel": "4.0.1-rc2-23931"
+        "dotnet-test-xunit": "1.0.0-rc2-173361-36",
+        "System.Threading.Tasks.Parallel": "4.0.1-rc3-24128-00",
+        "System.Diagnostics.TraceSource": "4.0.0-rc3-24128-00",
+        "Microsoft.NETCore.App": {
+          "type": "platform",
+          "version": "1.0.0-rc3-004338"
+        }
+      },
+      "buildOptions": {
+        "define": [
+          "IS_CORECLR"
+        ]
       }
     },
     "net46": {
@@ -37,6 +46,11 @@
       },
       "dependencies": {
         "Moq": "4.2.1510.2205"
+      },
+      "buildOptions": {
+        "define": [
+          "IS_DESKTOP"
+        ]
       }
     }
   },

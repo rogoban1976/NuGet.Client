@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Dnx.Runtime.Common.CommandLine;
-using Microsoft.Extensions.PlatformAbstractions;
 using NuGet.Commands;
 using NuGet.Configuration;
 using NuGet.ProjectModel;
+using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.CommandLine.XPlat
 {
@@ -80,8 +81,10 @@ namespace NuGet.CommandLine.XPlat
                 restore.OnExecute(async () =>
                 {
                     var log = getLogger();
-                    var logLevel = XPlatUtility.GetLogLevel(verbosity);
-                    log.SetLogLevel(logLevel);
+                    if (verbosity.HasValue())
+                    {
+                        log.LogLevel = XPlatUtility.GetLogLevel(verbosity);
+                    }
 
                     using (var cacheContext = new SourceCacheContext())
                     {
@@ -101,12 +104,12 @@ namespace NuGet.CommandLine.XPlat
                         {
                             CacheContext = cacheContext,
                             LockFileVersion = LockFileFormat.Version,
-                            ConfigFileName = configFile.HasValue() ? configFile.Value() : null,
+                            ConfigFile = configFile.HasValue() ? configFile.Value() : null,
                             DisableParallel = disableParallel.HasValue(),
                             GlobalPackagesFolder = packagesDirectory.HasValue() ? packagesDirectory.Value() : null,
                             Inputs = new List<string>(argRoot.Values),
                             Log = log,
-                            MachineWideSettings = new CommandLineXPlatMachineWideSetting(),
+                            MachineWideSettings = new XPlatMachineWideSetting(),
                             RequestProviders = providers,
                             Sources = sources.Values,
                             FallbackSources = fallBack.Values,
@@ -115,10 +118,15 @@ namespace NuGet.CommandLine.XPlat
 
                         if (inferRuntimes.HasValue())
                         {
-                            var defaultRuntimes = RequestRuntimeUtility.GetDefaultRestoreRuntimes(
-                                PlatformServices.Default.Runtime.OperatingSystem,
-                                PlatformServices.Default.Runtime.GetRuntimeOsName());
+                            var runtimeOSname = PlatformApis.GetRuntimeOsName();
+                            var os = PlatformApis.GetOSName();
+                            var defaultRuntimes = RequestRuntimeUtility.GetDefaultRestoreRuntimes(os, runtimeOSname);
                             restoreContext.FallbackRuntimes.UnionWith(defaultRuntimes);
+                        }
+
+                        if (restoreContext.DisableParallel)
+                        {
+                            HttpSourceResourceProvider.Throttle = SemaphoreSlimThrottle.CreateBinarySemaphore();
                         }
 
                         var restoreSummaries = await RestoreRunner.Run(restoreContext);

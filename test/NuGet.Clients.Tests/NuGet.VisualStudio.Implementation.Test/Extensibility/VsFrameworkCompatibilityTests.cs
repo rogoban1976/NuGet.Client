@@ -22,6 +22,7 @@ namespace NuGet.VisualStudio.Implementation.Test.Extensibility
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => target.GetNearest(targetFramework, frameworks));
         }
+
         [Fact]
         public void VsFrameworkCompatibility_GetNearestRejectsNullFrameworks()
         {
@@ -32,6 +33,23 @@ namespace NuGet.VisualStudio.Implementation.Test.Extensibility
 
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => target.GetNearest(targetFramework, frameworks));
+        }
+
+        [Fact]
+        public void VsFrameworkCompatibility_GetNearestRejectsNullFallbackFrameworks()
+        {
+            // Arrange
+            var target = new VsFrameworkCompatibility();
+            var targetFramework = new FrameworkName(".NETFramework,Version=v4.5");
+            FrameworkName[] fallbackTargetFrameworks = null;
+            var frameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v4.5.1"),
+                new FrameworkName(".NETFramework,Version=v4.5.2"),
+            };
+
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => target.GetNearest(targetFramework, fallbackTargetFrameworks, frameworks));
         }
 
         [Fact]
@@ -75,6 +93,74 @@ namespace NuGet.VisualStudio.Implementation.Test.Extensibility
         }
 
         [Fact]
+        public void VsFrameworkCompatibility_GetNearestWithCompatibleFallback()
+        {
+            // Arrange
+            var target = new VsFrameworkCompatibility();
+            var targetFramework = new FrameworkName(".NETFramework,Version=v4.5");
+            var fallbackTargetFrameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v4.5.2")
+            };
+            var frameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v4.5.1"),
+                new FrameworkName(".NETFramework,Version=v4.6.1"),
+            };
+
+            // Act
+            var actual = target.GetNearest(targetFramework, fallbackTargetFrameworks, frameworks);
+
+            // Assert
+            Assert.Equal(".NETFramework,Version=v4.5.1", actual.ToString());
+        }
+
+        [Fact]
+        public void VsFrameworkCompatibility_GetNearestWithIncompatibleFallback()
+        {
+            // Arrange
+            var target = new VsFrameworkCompatibility();
+            var targetFramework = new FrameworkName(".NETFramework,Version=v4.5");
+            var fallbackTargetFrameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v4.5.2")
+            };
+            var frameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v4.6"),
+                new FrameworkName(".NETFramework,Version=v4.6.1"),
+            };
+
+            // Act
+            var actual = target.GetNearest(targetFramework, fallbackTargetFrameworks, frameworks);
+
+            // Assert
+            Assert.Null(actual);
+        }
+
+        [Fact]
+        public void VsFrameworkCompatibility_GetNearestWithWithEmptyFallbackList()
+        {
+            // Arrange
+            var target = new VsFrameworkCompatibility();
+            var targetFramework = new FrameworkName(".NETFramework,Version=v4.5.1");
+            var fallbackTargetFrameworks = new FrameworkName[0];
+            var frameworks = new[]
+            {
+                new FrameworkName(".NETFramework,Version=v3.5"),
+                new FrameworkName(".NETFramework,Version=v4.0"),
+                new FrameworkName(".NETFramework,Version=v4.5"),
+                new FrameworkName(".NETFramework,Version=v4.5.2"),
+            };
+
+            // Act
+            var actual = target.GetNearest(targetFramework, frameworks);
+
+            // Assert
+            Assert.Equal(".NETFramework,Version=v4.5", actual.ToString());
+        }
+
+        [Fact]
         public void VsFrameworkCompatibility_GetNetStandardVersions()
         {
             // Arrange
@@ -90,6 +176,8 @@ namespace NuGet.VisualStudio.Implementation.Test.Extensibility
             Assert.Equal(".NETStandard,Version=v1.3", actual[3].ToString());
             Assert.Equal(".NETStandard,Version=v1.4", actual[4].ToString());
             Assert.Equal(".NETStandard,Version=v1.5", actual[5].ToString());
+            Assert.Equal(".NETStandard,Version=v1.6", actual[6].ToString());
+            Assert.Equal(7, actual.Length);
         }
     }
 }

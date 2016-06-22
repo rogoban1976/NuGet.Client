@@ -6,7 +6,7 @@ using System.Globalization;
 using System.Linq;
 using NuGet.Packaging.PackageCreation.Resources;
 
-#if !NETSTANDARD1_5
+#if !IS_CORECLR
 using System.Collections.Concurrent;
 using System.IO;
 using System.Xml;
@@ -49,16 +49,22 @@ namespace NuGet.Packaging
         /// </summary>
         internal const string SchemaVersionV6 = "http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd";
 
+        /// <summary>
+        /// Added packageTypes element under metadata.
+        /// </summary>
+        internal const string SchemaVersionV7 = "http://schemas.microsoft.com/packaging/2016/04/nuspec.xsd";
+        
         private static readonly string[] VersionToSchemaMappings = new[] {
             SchemaVersionV1,
             SchemaVersionV2,
             SchemaVersionV3,
             SchemaVersionV4,
             SchemaVersionV5,
-            SchemaVersionV6
+            SchemaVersionV6,
+            SchemaVersionV7
         };
 
-#if !NETSTANDARD1_5
+#if !IS_CORECLR
         private static ConcurrentDictionary<string, XmlSchemaSet> _manifestSchemaSetCache = new ConcurrentDictionary<string, XmlSchemaSet>(StringComparer.OrdinalIgnoreCase);
 #endif
 
@@ -80,7 +86,7 @@ namespace NuGet.Packaging
             return VersionToSchemaMappings[version - 1];
         }
 
-#if !NETSTANDARD1_5
+#if !IS_CORECLR
         public static XmlSchemaSet GetManifestSchemaSet(string schemaNamespace)
         {
             return _manifestSchemaSetCache.GetOrAdd(schemaNamespace, schema =>

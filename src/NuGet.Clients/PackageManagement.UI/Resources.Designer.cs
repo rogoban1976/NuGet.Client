@@ -628,7 +628,7 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Owner(s): .
+        ///   Looks up a localized string similar to Owner(s):.
         /// </summary>
         public static string Label_Owners {
             get {
@@ -804,6 +804,15 @@ namespace NuGet.PackageManagement.UI {
         public static string Link_LearnAboutUninstallOptions {
             get {
                 return ResourceManager.GetString("Link_LearnAboutUninstallOptions", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Time Elapsed: {0}.
+        /// </summary>
+        public static string Operation_TotalTime {
+            get {
+                return ResourceManager.GetString("Operation_TotalTime", resourceCulture);
             }
         }
         
@@ -1197,6 +1206,15 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Following versions are unavailable due to allowedVersions constraint in package.config.
+        /// </summary>
+        public static string ToolTip_BlockedVersion {
+            get {
+                return ResourceManager.GetString("ToolTip_BlockedVersion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Install {0} version {1}..
         /// </summary>
         public static string ToolTip_InstallButton {
@@ -1233,6 +1251,24 @@ namespace NuGet.PackageManagement.UI {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Refresh.
+        /// </summary>
+        public static string ToolTip_Refresh {
+            get {
+                return ResourceManager.GetString("ToolTip_Refresh", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Settings.
+        /// </summary>
+        public static string ToolTip_Settings {
+            get {
+                return ResourceManager.GetString("ToolTip_Settings", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Uninstall this package..
         /// </summary>
         public static string ToolTip_UninstallButton {
@@ -1256,6 +1292,15 @@ namespace NuGet.PackageManagement.UI {
         public static string ToolTip_UpdateButton {
             get {
                 return ResourceManager.GetString("ToolTip_UpdateButton", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Blocked by package.config.
+        /// </summary>
+        public static string Version_Blocked {
+            get {
+                return ResourceManager.GetString("Version_Blocked", resourceCulture);
             }
         }
         

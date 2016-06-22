@@ -69,6 +69,8 @@ namespace NuGet.PackageManagement.VisualStudio
 
         public event EventHandler<NuGetProjectEventArgs> NuGetProjectRenamed;
 
+        public event EventHandler<NuGetProjectEventArgs> AfterNuGetProjectRenamed;
+
         public event EventHandler SolutionClosed;
 
         public event EventHandler SolutionClosing;
@@ -182,6 +184,16 @@ namespace NuGet.PackageManagement.VisualStudio
             var projects = _nuGetAndEnvDTEProjectCache.GetNuGetProjects().ToList();
 
             return projects;
+        }
+
+        public void SaveProject(NuGetProject nuGetProject)
+        {
+            ThreadHelper.JoinableTaskFactory.Run(async delegate
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var safeName = GetNuGetProjectSafeName(nuGetProject);
+                EnvDTEProjectUtility.Save(GetDTEProject(safeName));
+            });
         }
 
         private IEnumerable<EnvDTEProject> GetEnvDTEProjects()
@@ -424,6 +436,12 @@ namespace NuGet.PackageManagement.VisualStudio
                     {
                         NuGetProjectRenamed(this, new NuGetProjectEventArgs(nuGetProject));
                     }
+
+                    // VSSolutionManager susbscribes to this Event, in order to update the caption on the DocWindow Tab.
+                    // This needs to fire after NugetProjectRenamed so that PackageManagerModel has been updated with
+                    // the right project context.
+                    AfterNuGetProjectRenamed?.Invoke(this, new NuGetProjectEventArgs(nuGetProject));
+
                 }
                 else if (EnvDTEProjectUtility.IsSolutionFolder(envDTEProject))
                 {

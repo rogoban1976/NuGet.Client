@@ -32,7 +32,7 @@ namespace NuGet.Common.Test
 
             if (!supported.HasValue)
             {
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
                 // .NET Core bug: https://github.com/dotnet/corefx/issues/6668
                 if (name == Ssl30Name)
                 {

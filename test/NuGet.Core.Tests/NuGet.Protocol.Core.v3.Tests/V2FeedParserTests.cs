@@ -1,17 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Packaging.Core;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 using Test.Utility;
 using Xunit;
 
-namespace NuGet.Protocol.Core.v3.Tests
+namespace NuGet.Protocol.Tests
 {
     public class V2FeedParserTests
     {
@@ -214,7 +215,7 @@ namespace NuGet.Protocol.Core.v3.Tests
             var serviceAddress = TestUtility.CreateServiceAddress();
 
             var responses = new Dictionary<string, string>();
-            responses.Add(serviceAddress + "Search()?$filter=IsLatestVersion&searchTerm='azure%2Bb'&targetFramework='portable-net45%2Bwin8'&includePrerelease=false&$skip=0&$top=1",
+            responses.Add(serviceAddress + "Search()?$filter=IsLatestVersion&searchTerm='azure%20%2B''%20b%20'&targetFramework='portable-net45%2Bwin8'&includePrerelease=false&$skip=0&$top=1",
                 TestUtility.GetResource("NuGet.Protocol.Core.v3.Tests.compiler.resources.AzureSearch.xml", GetType()));
             responses.Add(serviceAddress, string.Empty);
 
@@ -228,7 +229,7 @@ namespace NuGet.Protocol.Core.v3.Tests
             };
 
             // Act
-            var packages = await parser.Search("azure+b", searchFilter, 0, 1, NullLogger.Instance, CancellationToken.None);
+            var packages = await parser.Search("azure +' b ", searchFilter, 0, 1, NullLogger.Instance, CancellationToken.None);
             var package = packages.FirstOrDefault();
 
             // Assert
@@ -581,6 +582,44 @@ namespace NuGet.Protocol.Core.v3.Tests
             Assert.Equal(1, latest.DependencySets.Count());
             Assert.Equal(VersionRange.All, latest.DependencySets.Single().Packages.Where(p => p.Id == "PackageB").Single().VersionRange);
             Assert.Equal("any", latest.DependencySets.First().TargetFramework.GetShortFolderName());
+        }
+
+        [Fact]
+        public async Task V2FeedParser_DuplicateNextUrl()
+        {
+            // Arrange
+            var dupUrl =
+                "https://www.nuget.org/api/v2/FindPackagesById?id='ravendb.client'&$skiptoken='RavenDB.Client','1.2.2067-Unstable'";
+            var serviceAddress = TestUtility.CreateServiceAddress();
+
+            var responses = new Dictionary<string, string>();
+            responses.Add(serviceAddress + "FindPackagesById()?id='ravendb.client'",
+                TestUtility.GetResource("NuGet.Protocol.Core.v3.Tests.compiler.resources.CyclicDependency.xml", GetType()));
+            responses.Add(serviceAddress, string.Empty);
+            responses.Add(dupUrl,
+               TestUtility.GetResource("NuGet.Protocol.Core.v3.Tests.compiler.resources.CyclicDependencyPage1.xml", GetType()));
+            responses.Add("https://www.nuget.org/api/v2/FindPackagesById?id='ravendb.client'&$skiptoken='RavenDB.Client','2.0.2183-Unstable'",
+                TestUtility.GetResource("NuGet.Protocol.Core.v3.Tests.compiler.resources.CyclicDependencyPage2.xml", GetType()));
+
+            var httpSource = new TestHttpSource(new PackageSource(serviceAddress), responses);
+
+            V2FeedParser parser = new V2FeedParser(httpSource, serviceAddress);
+
+            FatalProtocolException duplicateUrlException = null;
+            try
+            {
+                // Act
+                var packages =
+                    await parser.FindPackagesByIdAsync("ravendb.client", NullLogger.Instance, CancellationToken.None);
+            }
+            catch (FatalProtocolException ex)
+            {
+                duplicateUrlException = ex;
+            }
+
+            // Assert
+            Assert.NotNull(duplicateUrlException);
+            Assert.Equal(string.Format(CultureInfo.CurrentCulture, Strings.Protocol_duplicateUri, dupUrl), duplicateUrlException.Message);
         }
     }
 }

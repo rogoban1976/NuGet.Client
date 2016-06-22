@@ -375,6 +375,15 @@ namespace NuGet.CommandLine.XPlat {
         }
         
         /// <summary>
+        ///    Looks up a localized string similar to {0} Version: {1}.
+        /// </summary>
+        public static string OutputNuGetVersion {
+            get {
+                return ResourceManager.GetString("OutputNuGetVersion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///    Looks up a localized string similar to Attempting to build package from &apos;{0}&apos;..
         /// </summary>
         public static string PackageCommandAttemptingToBuildPackage {
@@ -542,6 +551,15 @@ namespace NuGet.CommandLine.XPlat {
         public static string Restore_Switch_Source_Description {
             get {
                 return ResourceManager.GetString("Restore_Switch_Source_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///    Looks up a localized string similar to Sets the nuspec serviceable element to true..
+        /// </summary>
+        public static string Serviceable_Description {
+            get {
+                return ResourceManager.GetString("Serviceable_Description", resourceCulture);
             }
         }
         

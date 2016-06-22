@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NuGet.Common;
 using NuGet.Frameworks;
 using NuGet.Packaging.Core;
 
@@ -104,10 +105,20 @@ namespace NuGet.Packaging
         {
             var searchFolder = new DirectoryInfo(_root.FullName);
 
-            foreach (var file in searchFolder.GetFiles("*", SearchOption.AllDirectories).
+            // Enumerate root folder filtering out nupkg files
+            foreach (var file in searchFolder.GetFiles("*", SearchOption.TopDirectoryOnly).
                 Where(p => !p.FullName.EndsWith(PackagingCoreConstants.NupkgExtension, StringComparison.OrdinalIgnoreCase)))
             {
                 yield return GetRelativePath(_root, file);
+            }
+
+            // Enumerate all sub folders without filtering
+            foreach (var directory in searchFolder.GetDirectories("*", SearchOption.TopDirectoryOnly))
+            {
+                foreach (var file in directory.GetFiles("*", SearchOption.AllDirectories))
+                {
+                    yield return GetRelativePath(_root, file);
+                }
             }
 
             yield break;
@@ -160,6 +171,7 @@ namespace NuGet.Packaging
             string destination,
             IEnumerable<string> packageFiles,
             ExtractPackageFileDelegate extractFile,
+            ILogger logger,
             CancellationToken token)
         {
             var filesCopied = new List<string>();

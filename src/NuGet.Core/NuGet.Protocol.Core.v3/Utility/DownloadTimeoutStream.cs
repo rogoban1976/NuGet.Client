@@ -5,7 +5,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.Protocol
 {
@@ -49,7 +48,7 @@ namespace NuGet.Protocol
             }
         }
         
-#if !NETSTANDARD1_5
+#if !IS_CORECLR
         public override IAsyncResult BeginRead(
             byte[] buffer,
             int offset,

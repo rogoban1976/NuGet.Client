@@ -1096,6 +1096,15 @@ namespace NuGet.CommandLine {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The remote server indicated that the previous request was forbidden. Please provide credentials for: {0}.
+        /// </summary>
+        public static string Credentials_ForbiddenCredentials {
+            get {
+                return ResourceManager.GetString("Credentials_ForbiddenCredentials", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Password: .
         /// </summary>
         public static string Credentials_Password {
@@ -2316,6 +2325,15 @@ namespace NuGet.CommandLine {
         public static string DeleteCommandDeletingPackage_trk {
             get {
                 return ResourceManager.GetString("DeleteCommandDeletingPackage_trk", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Invalid AssemblyInformationalVersion {0} on assembly {1}..
+        /// </summary>
+        public static string Error_AssemblyInformationalVersion {
+            get {
+                return ResourceManager.GetString("Error_AssemblyInformationalVersion", resourceCulture);
             }
         }
         
@@ -6784,6 +6802,15 @@ namespace NuGet.CommandLine {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to {0} Version: {1}.
+        /// </summary>
+        public static string OutputNuGetVersion {
+            get {
+                return ResourceManager.GetString("OutputNuGetVersion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Added file &apos;{0}&apos;..
         /// </summary>
         public static string PackageCommandAddedFile {
@@ -8814,6 +8841,15 @@ namespace NuGet.CommandLine {
         public static string Path_Invalid_NotFileNotUnc {
             get {
                 return ResourceManager.GetString("Path_Invalid_NotFileNotUnc", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Nothing to do. This project does not specify any packages for NuGet to restore..
+        /// </summary>
+        public static string ProjectRestoreCommandNoPackagesConfigOrProjectJson {
+            get {
+                return ResourceManager.GetString("ProjectRestoreCommandNoPackagesConfigOrProjectJson", resourceCulture);
             }
         }
         
@@ -10978,6 +11014,15 @@ namespace NuGet.CommandLine {
         public static string SettingsCredentials_UsingSavedCredentials {
             get {
                 return ResourceManager.GetString("SettingsCredentials_UsingSavedCredentials", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Nothing to do. None of the projects in this solution specify any packages for NuGet to restore..
+        /// </summary>
+        public static string SolutionRestoreCommandNoPackagesConfigOrProjectJson {
+            get {
+                return ResourceManager.GetString("SolutionRestoreCommandNoPackagesConfigOrProjectJson", resourceCulture);
             }
         }
         

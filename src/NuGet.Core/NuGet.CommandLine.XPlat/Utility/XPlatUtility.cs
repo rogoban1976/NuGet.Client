@@ -1,13 +1,12 @@
 ﻿using System;
 using System.IO;
 using System.Net;
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
 using System.Runtime.InteropServices;
 #endif
 using Microsoft.Dnx.Runtime.Common.CommandLine;
 using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Protocol.Core.Types;
 
 namespace NuGet.CommandLine.XPlat
@@ -22,7 +21,7 @@ namespace NuGet.CommandLine.XPlat
             return Settings.LoadDefaultSettings(
                 Directory.GetCurrentDirectory(),
                 configFileName: null,
-                machineWideSettings: new CommandLineXPlatMachineWideSetting());
+                machineWideSettings: new XPlatMachineWideSetting());
         }
 
         public static LogLevel GetLogLevel(CommandOption verbosity)
@@ -38,7 +37,7 @@ namespace NuGet.CommandLine.XPlat
 
         public static void SetUserAgent()
         {
-#if NETSTANDARDAPP1_5
+#if IS_CORECLR
             UserAgent.SetUserAgentString(new UserAgentStringBuilder("NuGet xplat")
                 .WithOSDescription(RuntimeInformation.OSDescription));
 #else
@@ -48,7 +47,7 @@ namespace NuGet.CommandLine.XPlat
 
         public static void SetConnectionLimit()
         {
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
             // Increase the maximum number of connections per server.
             if (!RuntimeEnvironmentHelper.IsMono)
             {

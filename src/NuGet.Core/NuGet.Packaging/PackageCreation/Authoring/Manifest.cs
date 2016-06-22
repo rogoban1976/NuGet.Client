@@ -36,12 +36,19 @@ namespace NuGet.Packaging
             if (files != null)
             {
                 Files = files;
+                HasFilesNode = true;
+            }
+            else
+            {
+                HasFilesNode = false;
             }
         }
 
         public ManifestMetadata Metadata { get; }
 
         public ICollection<ManifestFile> Files { get; } = new List<ManifestFile>();
+
+        public bool HasFilesNode { get; }
 
         /// <summary>
         /// Saves the current manifest to the specified stream.
@@ -150,15 +157,29 @@ namespace NuGet.Packaging
 
         private static void ValidateManifestSchema(XDocument document, string schemaNamespace)
         {
-#if !NETSTANDARD1_5 // CORECLR_TODO: XmlSchema
+#if !IS_CORECLR // CORECLR_TODO: XmlSchema
             var schemaSet = ManifestSchemaUtility.GetManifestSchemaSet(schemaNamespace);
 
             document.Validate(schemaSet, (sender, e) =>
             {
                 if (e.Severity == XmlSeverityType.Error)
                 {
+                    var message = e.Message;
+
+                    // To make sure this error message is actionable, try to add the element name
+                    // where the error is occurring.
+                    var senderElement = sender as XElement;
+                    if (senderElement != null)
+                    {
+                        message = string.Format(
+                            CultureInfo.CurrentCulture,
+                            Strings.InvalidNuspecElement,
+                            message,
+                            senderElement.Name.LocalName);
+                    }
+
                     // Throw an exception if there is a validation error
-                    throw new InvalidOperationException(e.Message);
+                    throw new InvalidOperationException(message);
                 }
             });
 #endif
@@ -166,7 +187,7 @@ namespace NuGet.Packaging
 
         private static void CheckSchemaVersion(XDocument document)
         {
-#if !NETSTANDARD1_5 // CORECLR_TODO: XmlSchema
+#if !IS_CORECLR // CORECLR_TODO: XmlSchema
             // Get the metadata node and look for the schemaVersion attribute
             XElement metadata = GetMetadataElement(document);
 

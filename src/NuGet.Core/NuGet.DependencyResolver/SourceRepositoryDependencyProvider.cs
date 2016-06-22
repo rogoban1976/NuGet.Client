@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using NuGet.Common;
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
@@ -99,10 +98,16 @@ namespace NuGet.DependencyResolver
 
             if (packageVersion != null)
             {
+                // Use the original package identity for the library identity
+                var packageIdentity = await _findPackagesByIdResource.GetOriginalIdentityAsync(
+                    libraryRange.Name,
+                    packageVersion,
+                    cancellationToken);
+
                 return new LibraryIdentity
                 {
-                    Name = libraryRange.Name,
-                    Version = packageVersion,
+                    Name = packageIdentity.Id,
+                    Version = packageIdentity.Version,
                     Type = LibraryType.Package
                 };
             }

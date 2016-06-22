@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using Microsoft.Dnx.Runtime.Common.CommandLine;
@@ -14,14 +14,27 @@ namespace NuGet.CommandLine.XPlat
     public class Program
     {
         private const string DebugOption = "--debug";
-        public static CommandOutputLogger Log { get; set; }
 
         public static int Main(string[] args)
+        {
+            // Start with a default logger, this will be updated according to the passed in verbosity
+            var log = new CommandOutputLogger(LogLevel.Information);
+
+            return MainInternal(args, log);
+        }
+
+        /// <summary>
+        /// Internal Main. This is used for testing.
+        /// </summary>
+        public static int MainInternal(string[] args, CommandOutputLogger log)
         {
 #if DEBUG
             if (args.Contains(DebugOption))
             {
                 args = args.Where(arg => !StringComparer.OrdinalIgnoreCase.Equals(arg, DebugOption)).ToArray();
+
+                Console.WriteLine("Waiting for debugger to attach.");
+                Console.WriteLine($"Process ID: {Process.GetCurrentProcess().Id}");
 
                 while (!Debugger.IsAttached)
                 {
@@ -46,13 +59,10 @@ namespace NuGet.CommandLine.XPlat
 
             var verbosity = app.Option(XPlatUtility.VerbosityOption, Strings.Switch_Verbosity, CommandOptionType.SingleValue);
 
-            // Set up logging.
-            // For tests this will already be set.
-            if (Log == null)
-            {
-                var logLevel = XPlatUtility.GetLogLevel(verbosity);
-                Log = new CommandOutputLogger(logLevel);
-            }
+            // Options aren't parsed until we call app.Execute(), so look directly for the verbosity option ourselves
+            LogLevel logLevel;
+            TryParseVerbosity(args, verbosity, out logLevel);
+            log.LogLevel = logLevel;
 
             XPlatUtility.SetConnectionLimit();
 
@@ -62,10 +72,10 @@ namespace NuGet.CommandLine.XPlat
             NetworkProtocolUtility.ConfigureSupportedSslProtocols();
 
             // Register commands
-            DeleteCommand.Register(app, () => Log);
-            PackCommand.Register(app, () => Log);
-            PushCommand.Register(app, () => Log);
-            RestoreCommand.Register(app, () => Log);
+            DeleteCommand.Register(app, () => log);
+            PackCommand.Register(app, () => log);
+            PushCommand.Register(app, () => log);
+            RestoreCommand.Register(app, () => log);
 
             app.OnExecute(() =>
             {
@@ -73,6 +83,8 @@ namespace NuGet.CommandLine.XPlat
 
                 return 0;
             });
+
+            log.LogVerbose(string.Format(CultureInfo.CurrentCulture, Strings.OutputNuGetVersion, app.FullName, app.LongVersionGetter()));
 
             int exitCode = 0;
 
@@ -83,10 +95,17 @@ namespace NuGet.CommandLine.XPlat
             catch (Exception e)
             {
                 // Log the error
-                Log.LogError(ExceptionUtilities.DisplayMessage(e));
+                if (ExceptionLogger.Instance.ShowStack)
+                {
+                    log.LogError(e.ToString());
+                }
+                else
+                {
+                    log.LogError(ExceptionUtilities.DisplayMessage(e));
+                }
 
                 // Log the stack trace as verbose output.
-                Log.LogVerbose(e.ToString());
+                log.LogVerbose(e.ToString());
 
                 exitCode = 1;
             }
@@ -98,6 +117,61 @@ namespace NuGet.CommandLine.XPlat
             }
 
             return exitCode;
+        }
+
+        /// <summary>
+        /// Attempts to parse the desired log verbosity from the arguments. Returns true if the
+        /// arguments contains a valid verbosity option. If no valid verbosity option was
+        /// specified, the log level is set to a default log level and false is returned.
+        /// </summary>
+        private static bool TryParseVerbosity(string[] args, CommandOption verbosity, out LogLevel logLevel)
+        {
+            bool found = false;
+
+            for (var index = 0; index < args.Length; index++)
+            {
+                var arg = args[index];
+                string[] option;
+                if (arg.StartsWith("--"))
+                {
+                    option = arg.Substring(2).Split(new[] { ':', '=' }, 2);
+                    if (!string.Equals(option[0], verbosity.LongName, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                }
+                else if (arg.StartsWith("-"))
+                {
+                    option = arg.Substring(1).Split(new[] { ':', '=' }, 2);
+                    if (!string.Equals(option[0], verbosity.ShortName, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    continue;
+                }
+
+                if (option.Length == 2)
+                {
+                    found = verbosity.TryParse(option[1]);
+                }
+                else if (index < args.Length - 1)
+                {
+                    found = verbosity.TryParse(args[index + 1]);
+                }
+
+                break;
+            }
+
+            logLevel = XPlatUtility.GetLogLevel(verbosity);
+
+            // Reset the parsed value since the application execution expects the option to not be
+            // populated yet, as this is a single-valued option.
+            verbosity.Values.Clear();
+
+            return found;
         }
     }
 }

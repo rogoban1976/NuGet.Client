@@ -330,7 +330,7 @@ function Test-InstallPackageAPIUnreachableSource
     $p = New-ClassLibrary
 
     # Act&Assert
-    Assert-Throws {[API.Test.InternalAPITestHook]::InstallPackageApiBadSource("owin","1.0.0") } "Exception calling `"InstallPackageApiBadSource`" with `"2`" argument(s): `"An error occurred while retrieving package metadata for 'owin.1.0.0' from source 'http://packagesource'.`""
+    Assert-Throws {[API.Test.InternalAPITestHook]::InstallPackageApiBadSource("owin","1.0.0") } "Exception calling `"InstallPackageApiBadSource`" with `"2`" argument(s): `"Unable to load the service index for source http://packagesource.`""
     Assert-NoPackage $p "owin"
 }
 
@@ -484,6 +484,7 @@ function Test-GetNetStandardVersions
     Assert-AreEqual ".NETStandard,Version=v1.3" ($actual | Select-Object -Index 3)
     Assert-AreEqual ".NETStandard,Version=v1.4" ($actual | Select-Object -Index 4)
     Assert-AreEqual ".NETStandard,Version=v1.5" ($actual | Select-Object -Index 5)
+    Assert-AreEqual ".NETStandard,Version=v1.6" ($actual | Select-Object -Index 6)
 }
 
 function Test-GetFrameworksSupportingNetStandard

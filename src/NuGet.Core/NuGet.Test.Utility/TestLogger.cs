@@ -3,13 +3,14 @@ using System.Collections.Concurrent;
 
 namespace NuGet.Test.Utility
 {
-    public class TestLogger : Logging.ILogger
+    public class TestLogger : Common.ILogger
     {
         /// <summary>
         /// Logged messages
         /// </summary>
         public ConcurrentQueue<string> Messages { get; } = new ConcurrentQueue<string>();
         public ConcurrentQueue<string> DebugMessages { get; } = new ConcurrentQueue<string>();
+        public ConcurrentQueue<string> VerboseMessages { get; } = new ConcurrentQueue<string>();
         public ConcurrentQueue<string> MinimalMessages { get; } = new ConcurrentQueue<string>();
         public ConcurrentQueue<string> ErrorMessages { get; } = new ConcurrentQueue<string>();
 
@@ -48,6 +49,7 @@ namespace NuGet.Test.Utility
         public void LogVerbose(string data)
         {
             Messages.Enqueue(data);
+            VerboseMessages.Enqueue(data);
             DumpMessage("TRACE", data);
         }
 

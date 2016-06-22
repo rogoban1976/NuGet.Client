@@ -2,7 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
+using NuGet.Protocol;
 
 namespace NuGet.Protocol
 {
@@ -17,12 +17,12 @@ namespace NuGet.Protocol
         {
             DependencyInfoResource resource = null;
 
-            if ((FeedTypeUtility.GetFeedType(source.PackageSource) & FeedType.HttpV2) != FeedType.None)
+            if (await source.GetFeedType(token) == FeedType.HttpV2)
             {
                 var serviceDocument = await source.GetResourceAsync<ODataServiceDocumentResourceV2>(token);
-
-                var httpSource = HttpSource.Create(source);
-                var parser = new V2FeedParser(httpSource, serviceDocument.BaseAddress, source.PackageSource);
+ 
+                var httpSource = await source.GetResourceAsync<HttpSourceResource>(token);
+                var parser = new V2FeedParser(httpSource.HttpSource, serviceDocument.BaseAddress, source.PackageSource);
 
                 resource = new DependencyInfoResourceV2Feed(parser, source);
             }

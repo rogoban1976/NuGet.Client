@@ -125,6 +125,20 @@ namespace NuGet.Configuration
         }
 
         /// <summary>
+        /// Load default settings based on a directory.
+        /// This includes machine wide settings.
+        /// </summary>
+        public static ISettings LoadDefaultSettings(string root)
+        {
+            return LoadDefaultSettings(
+                root,
+                configFileName: null,
+                machineWideSettings: new XPlatMachineWideSetting(),
+                loadAppDataSettings: true,
+                useTestingGlobalPath: false);
+        }
+
+        /// <summary>
         /// Loads user settings from the NuGet configuration files. The method walks the directory
         /// tree in <paramref name="root" /> up to its root, and reads each NuGet.config file
         /// it finds in the directories. It then reads the user specific settings,
@@ -163,6 +177,25 @@ namespace NuGet.Configuration
                 root,
                 configFileName,
                 machineWideSettings,
+                loadAppDataSettings: true,
+                useTestingGlobalPath: false);
+        }
+
+        /// <summary>
+        /// Loads Specific NuGet.Config file. The method only loads specific config file 
+        /// which is file <paramref name="configFileName"/>from <paramref name="root"/>.
+        /// </summary>
+        public static ISettings LoadSpecificSettings(string root, string configFileName)
+        {
+            if (string.IsNullOrEmpty(configFileName))
+            {
+                throw new ArgumentException(Resources.Argument_Cannot_Be_Null_Or_Empty, nameof(configFileName));
+            }
+
+            return LoadDefaultSettings(
+                root,
+                configFileName,
+                machineWideSettings: null,
                 loadAppDataSettings: true,
                 useTestingGlobalPath: false);
         }
@@ -414,7 +447,7 @@ namespace NuGet.Configuration
                 curr = curr._next;
             }
 
-            return ApplyEnvironmentTransform(ret);
+            return ret;
         }
 
         private string ApplyEnvironmentTransform(string configValue)
@@ -441,8 +474,6 @@ namespace NuGet.Configuration
                 curr.PopulateValues(section, settingValues, isPath);
                 curr = curr._next;
             }
-
-            settingValues.ForEach(settingValue => settingValue.Value = ApplyEnvironmentTransform(settingValue.Value));
 
             return settingValues.AsReadOnly();
         }
@@ -804,6 +835,7 @@ namespace NuGet.Configuration
 
             // Return the optional value which if not there will be null;
             var value = XElementUtility.GetOptionalAttributeValue(element, ConfigurationConstants.ValueAttribute);
+            value = ApplyEnvironmentTransform(value);
             if (!isPath
                 || String.IsNullOrEmpty(value))
             {
@@ -886,7 +918,7 @@ namespace NuGet.Configuration
                 throw new InvalidDataException(String.Format(CultureInfo.CurrentCulture, Resources.UserSettings_UnableToParseConfigFile, ConfigFilePath));
             }
 
-            var value = valueAttribute.Value;
+            var value = ApplyEnvironmentTransform(valueAttribute.Value);
             var originalValue = valueAttribute.Value;
             Uri uri;
 
@@ -1037,7 +1069,7 @@ namespace NuGet.Configuration
             ExecuteSynchronized(() => FileSystemUtility.AddFile(ConfigFilePath, ConfigXDocument.Save));
         }
 
-#if NETSTANDARD1_5
+#if IS_CORECLR
         private static Mutex _globalMutex = new Mutex(initiallyOwned: false);
 
         /// <summary>

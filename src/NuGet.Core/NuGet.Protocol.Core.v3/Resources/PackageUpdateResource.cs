@@ -9,12 +9,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
-using NuGet.Protocol.Core.v3;
 using NuGet.Versioning;
-using Strings = NuGet.Protocol.Core.v3.Strings;
 
 namespace NuGet.Protocol.Core.Types
 {
@@ -37,6 +34,11 @@ namespace NuGet.Protocol.Core.Types
             _httpSource = httpSource;
         }
 
+        public Uri SourceUri
+        {
+            get { return UriUtility.CreateSourceUri(_source); }
+        }
+
         public async Task Push(
             string packagePath,
             string symbolsSource, // empty to not push symbols
@@ -50,19 +52,17 @@ namespace NuGet.Protocol.Core.Types
 
             using (var tokenSource = new CancellationTokenSource())
             {
-                if (timeoutInSecond > 0)
-                {
-                    tokenSource.CancelAfter(TimeSpan.FromSeconds(timeoutInSecond));
-                }
+                var requestTimeout = TimeSpan.FromSeconds(timeoutInSecond);
+                tokenSource.CancelAfter(requestTimeout);
 
                 var apiKey = getApiKey(_source);
 
-                await PushPackage(packagePath, _source, apiKey, log, tokenSource.Token);
+                await PushPackage(packagePath, _source, apiKey, requestTimeout, log, tokenSource.Token);
 
                 if (!string.IsNullOrEmpty(symbolsSource) && !IsFileSource())
                 {
                     string symbolsApiKey = getApiKey(symbolsSource);
-                    await PushSymbols(packagePath, symbolsSource, symbolsApiKey, log, tokenSource.Token);
+                    await PushSymbols(packagePath, symbolsSource, symbolsApiKey, requestTimeout, log, tokenSource.Token);
                 }
             }
         }
@@ -105,6 +105,7 @@ namespace NuGet.Protocol.Core.Types
         private async Task PushSymbols(string packagePath,
             string source,
             string apiKey,
+            TimeSpan requestTimeout,
             ILogger log,
             CancellationToken token)
         {
@@ -123,7 +124,7 @@ namespace NuGet.Protocol.Core.Types
                         Strings.DefaultSymbolServer));
                 }
 
-                await PushPackage(symbolPackagePath, source, apiKey, log, token);
+                await PushPackage(symbolPackagePath, source, apiKey, requestTimeout, log, token);
             }
         }
 
@@ -140,6 +141,7 @@ namespace NuGet.Protocol.Core.Types
         private async Task PushPackage(string packagePath,
             string source,
             string apiKey,
+            TimeSpan requestTimeout,
             ILogger log,
             CancellationToken token)
         {
@@ -156,13 +158,14 @@ namespace NuGet.Protocol.Core.Types
 
             foreach (string packageToPush in packagesToPush)
             {
-                await PushPackageCore(source, apiKey, packageToPush, log, token);
+                await PushPackageCore(source, apiKey, packageToPush, requestTimeout, log, token);
             }
         }
 
         private async Task PushPackageCore(string source,
             string apiKey,
             string packageToPush,
+            TimeSpan requestTimeout,
             ILogger log,
             CancellationToken token)
         {
@@ -181,7 +184,7 @@ namespace NuGet.Protocol.Core.Types
             else
             {
                 var length = new FileInfo(packageToPush).Length;
-                await PushPackageToServer(source, apiKey, packageToPush, length, log, token);
+                await PushPackageToServer(source, apiKey, packageToPush, length, requestTimeout, log, token);
             }
 
             log.LogInformation(Strings.PushCommandPackagePushed);
@@ -243,8 +246,8 @@ namespace NuGet.Protocol.Core.Types
         // Indicates whether the specified source is a file source, such as: \\a\b, c:\temp, etc.
         private bool IsFileSource()
         {
-            //we leverage the detection already done at resource provider level. 
-            //that for file system, the "httpSource" is null. 
+            //we leverage the detection already done at resource provider level.
+            //that for file system, the "httpSource" is null.
             return _httpSource == null;
         }
 
@@ -253,11 +256,13 @@ namespace NuGet.Protocol.Core.Types
             string apiKey,
             string pathToPackage,
             long packageSize,
+            TimeSpan requestTimeout,
             ILogger logger,
             CancellationToken token)
         {
+            var serviceEndpointUrl = GetServiceEndpointUrl(source, string.Empty);
             await _httpSource.ProcessResponseAsync(
-                () => CreateRequest(source, pathToPackage, apiKey),
+                new HttpSourceRequest(() => CreateRequest(serviceEndpointUrl, pathToPackage, apiKey, logger)),
                 response =>
                 {
                     response.EnsureSuccessStatusCode();
@@ -267,18 +272,27 @@ namespace NuGet.Protocol.Core.Types
                 token);
         }
 
-        private HttpRequestMessage CreateRequest(string source,
+        private HttpRequestMessage CreateRequest(
+            Uri serviceEndpointUrl,
             string pathToPackage,
-            string apiKey)
+            string apiKey,
+            ILogger log)
         {
             var fileStream = new FileStream(pathToPackage, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var request = new HttpRequestMessage(HttpMethod.Put, GetServiceEndpointUrl(source, string.Empty));
+            var hasApiKey = !string.IsNullOrEmpty(apiKey);
+            var request = HttpRequestMessageFactory.Create(
+                HttpMethod.Put,
+                serviceEndpointUrl,
+                new HttpRequestMessageConfiguration(
+                    logger: log,
+                    promptOn403: !hasApiKey)); // Receiving an HTTP 403 when providing an API key typically indicates
+                                               // an invalid API key, so prompting for credentials does not help.
             var content = new MultipartFormDataContent();
 
             var packageContent = new StreamContent(fileStream);
             packageContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/octet-stream");
             //"package" and "package.nupkg" are random names for content deserializing
-            //not tied to actual package name.  
+            //not tied to actual package name.
             content.Add(packageContent, "package", "package.nupkg");
             request.Content = content;
 
@@ -286,10 +300,11 @@ namespace NuGet.Protocol.Core.Types
             // Otherwise the whole package needs to be sent to the server before the PUT fails.
             request.Headers.TransferEncodingChunked = true;
 
-            if (!string.IsNullOrEmpty(apiKey))
+            if (hasApiKey)
             {
                 request.Headers.Add(ApiKeyHeader, apiKey);
             }
+
             return request;
         }
 
@@ -350,18 +365,31 @@ namespace NuGet.Protocol.Core.Types
             ILogger logger,
             CancellationToken token)
         {
+            var url = string.Join("/", packageId, packageVersion);
+            var serviceEndpointUrl = GetServiceEndpointUrl(source, url);
+
             await _httpSource.ProcessResponseAsync(
-                () =>
-                {
-                    // Review: Do these values need to be encoded in any way?
-                    var url = String.Join("/", packageId, packageVersion);
-                    var request = new HttpRequestMessage(HttpMethod.Delete, GetServiceEndpointUrl(source, url));
-                    if (!string.IsNullOrEmpty(apiKey))
+                new HttpSourceRequest(
+                    () =>
                     {
-                        request.Headers.Add(ApiKeyHeader, apiKey);
-                    }
-                    return request;
-                },
+                        // Review: Do these values need to be encoded in any way?
+                        var hasApiKey = !string.IsNullOrEmpty(apiKey);
+                        var request = HttpRequestMessageFactory.Create(
+                            HttpMethod.Delete,
+                            serviceEndpointUrl,
+                            new HttpRequestMessageConfiguration(
+                                logger: logger,
+                                promptOn403: !hasApiKey)); // Receiving an HTTP 403 when providing an API key typically
+                                                           // indicates an invalid API key, so prompting for credentials
+                                                           // does not help.
+
+                        if (hasApiKey)
+                        {
+                            request.Headers.Add(ApiKeyHeader, apiKey);
+                        }
+
+                        return request;
+                    }),
                 response =>
                 {
                     response.EnsureSuccessStatusCode();
@@ -466,7 +494,7 @@ namespace NuGet.Protocol.Core.Types
                 if (Directory.GetFiles(idDirectory, "*.nupkg").Any() ||
                     Directory.GetFiles(idDirectory, "*.nuspec").Any())
                 {
-                    // ~/Foo/Foo.1.0.0.nupkg (LocalPackageRepository with PackageSaveModes.Nupkg) or 
+                    // ~/Foo/Foo.1.0.0.nupkg (LocalPackageRepository with PackageSaveModes.Nupkg) or
                     // ~/Foo/Foo.1.0.0.nuspec (LocalPackageRepository with PackageSaveMode.Nuspec)
                     return true;
                 }

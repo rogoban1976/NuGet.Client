@@ -10612,6 +10612,15 @@ namespace NuGet.CommandLine {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to nuget restore MySoluion.sln.
+        /// </summary>
+        internal static string RestoreCommandUsageExamples {
+            get {
+                return ResourceManager.GetString("RestoreCommandUsageExamples", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to [&lt;solution&gt; | &lt;packages.config file&gt; | &lt;project.json&gt; | &lt;Microsoft Build project&gt;] [options].
         /// </summary>
         internal static string RestoreCommandUsageSummary {
@@ -14402,6 +14411,15 @@ namespace NuGet.CommandLine {
         internal static string UpdateCommandVerboseDescription_trk {
             get {
                 return ResourceManager.GetString("UpdateCommandVerboseDescription_trk", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Updates the package in -Id to the version indicated.  Requires -Id to contain exactly one package id..
+        /// </summary>
+        internal static string UpdateCommandVersionDescription {
+            get {
+                return ResourceManager.GetString("UpdateCommandVersionDescription", resourceCulture);
             }
         }
     }

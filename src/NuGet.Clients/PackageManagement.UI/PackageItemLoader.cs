@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.Threading;
 using NuGet.Common;
 using NuGet.Protocol.Core.Types;
+using NuGet.Versioning;
 
 namespace NuGet.PackageManagement.UI
 {
@@ -20,6 +21,7 @@ namespace NuGet.PackageManagement.UI
 
         private readonly IPackageFeed _packageFeed;
         private PackageCollection _installedPackages;
+        private IEnumerable<Packaging.PackageReference> _packageReferences;
 
         private SearchFilter SearchFilter => new SearchFilter
         {
@@ -67,7 +69,9 @@ namespace NuGet.PackageManagement.UI
                 }
             }
 
-            public int ItemsCount => _results?.Items?.Count() ?? 0;
+            // returns the "raw" counter which is not the same as _results.Items.Count
+            // simply because it correlates to un-merged items
+            public int ItemsCount => _results?.RawItemsCount ?? 0;
 
             public IDictionary<string, LoadingStatus> SourceLoadingStatus => _results?.SourceSearchStatus;
 
@@ -147,6 +151,8 @@ namespace NuGet.PackageManagement.UI
             // Go off the UI thread to perform non-UI operations
             await TaskScheduler.Default;
 
+            ActivityCorrelationContext.StartNew();
+
             int totalCount = 0;
             ContinuationToken nextToken = null;
             do
@@ -167,6 +173,8 @@ namespace NuGet.PackageManagement.UI
         {
             // Go off the UI thread to perform non-UI operations
             await TaskScheduler.Default;
+
+            ActivityCorrelationContext.StartNew();
 
             var packages = new List<IPackageSearchMetadata>();
             ContinuationToken nextToken = null;
@@ -189,6 +197,8 @@ namespace NuGet.PackageManagement.UI
 
         public async Task LoadNextAsync(IProgress<IItemLoaderState> progress, CancellationToken cancellationToken)
         {
+            ActivityCorrelationContext.StartNew();
+
             cancellationToken.ThrowIfCancellationRequested();
 
             NuGetEventTrigger.Instance.TriggerEvent(NuGetEvent.PackageLoadBegin);
@@ -196,13 +206,13 @@ namespace NuGet.PackageManagement.UI
             var nextToken = _state.Results?.NextToken;
             var cleanState = SearchResult.Empty<IPackageSearchMetadata>();
             cleanState.NextToken = nextToken;
-            await UpdateStateAndReportAsync(cleanState, progress);
+            await UpdateStateAndReportAsync(cleanState, progress, cancellationToken);
 
             var searchResult = await SearchAsync(nextToken, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            await UpdateStateAndReportAsync(searchResult, progress);
+            await UpdateStateAndReportAsync(searchResult, progress, cancellationToken);
 
             NuGetEventTrigger.Instance.TriggerEvent(NuGetEvent.PackageLoadEnd);
         }
@@ -222,7 +232,7 @@ namespace NuGet.PackageManagement.UI
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                await UpdateStateAndReportAsync(searchResult, progress);
+                await UpdateStateAndReportAsync(searchResult, progress, cancellationToken);
             }
 
             NuGetEventTrigger.Instance.TriggerEvent(NuGetEvent.PackageLoadEnd);
@@ -238,10 +248,20 @@ namespace NuGet.PackageManagement.UI
             return await _packageFeed.SearchAsync(_searchText, SearchFilter, cancellationToken);
         }
 
-        private async Task UpdateStateAndReportAsync(SearchResult<IPackageSearchMetadata> searchResult, IProgress<IItemLoaderState> progress)
+        private async Task UpdateStateAndReportAsync(SearchResult<IPackageSearchMetadata> searchResult, IProgress<IItemLoaderState> progress, CancellationToken cancellationToken)
         {
             // cache installed packages here for future use
             _installedPackages = await _context.GetInstalledPackagesAsync();
+
+            // fetch package references from all the projects and cache locally
+            // for solution view, we'll always show the highest available version
+            // but for project view, get the allowed version range and pass it to package item view model to choose the latest version based on that
+            if (_packageReferences == null && !_context.IsSolution)
+            {
+                var tasks = _context.Projects
+                    .Select(project => project.GetInstalledPackagesAsync(cancellationToken));
+                _packageReferences = (await Task.WhenAll(tasks)).SelectMany(p => p).Where(p => p != null);
+            }
 
             var state = new PackageFeedSearchState(searchResult);
             _state = state;
@@ -263,6 +283,20 @@ namespace NuGet.PackageManagement.UI
             var listItems = _state.Results
                 .Select(metadata =>
                 {
+                    VersionRange allowedVersions = VersionRange.All;
+
+                    // get the allowed version range and pass it to package item view model to choose the latest version based on that
+                    if (_packageReferences != null)
+                    {
+                        var matchedPackageReferences = _packageReferences.Where(r => StringComparer.OrdinalIgnoreCase.Equals(r.PackageIdentity.Id, metadata.Identity.Id));
+                        var allowedVersionsRange = matchedPackageReferences.Select(r => r.AllowedVersions).Where(v => v != null).ToArray();
+
+                        if (allowedVersionsRange.Length > 0)
+                        {
+                            allowedVersions = allowedVersionsRange[0];
+                        }
+                    }
+
                     var listItem = new PackageItemListViewModel
                     {
                         Id = metadata.Identity.Id,
@@ -271,7 +305,8 @@ namespace NuGet.PackageManagement.UI
                         Author = metadata.Authors,
                         DownloadCount = metadata.DownloadCount,
                         Summary = metadata.Summary,
-                        Versions = AsyncLazy.New(() => metadata.GetVersionsAsync())
+                        Versions = AsyncLazy.New(() => metadata.GetVersionsAsync()),
+                        AllowedVersions = allowedVersions
                     };
                     listItem.UpdatePackageStatus(_installedPackages);
 

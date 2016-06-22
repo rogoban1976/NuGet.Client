@@ -10,11 +10,10 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NuGet.Common;
-using NuGet.Logging;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 
-namespace NuGet.Protocol.Core.v3
+namespace NuGet.Protocol
 {
     /// <summary>
     /// Retrieves and caches service index.json files
@@ -121,13 +120,15 @@ namespace NuGet.Protocol.Core.v3
                 try
                 {
                     using (var sourceResponse = await client.GetAsync(
-                        url,
-                        "service_index",
-                        cacheContext,
+                        new HttpSourceCachedRequest(
+                            url,
+                            "service_index",
+                            cacheContext)
+                        {
+                            EnsureValidContents = stream => HttpStreamValidation.ValidateJObject(url, stream)
+                        },
                         log,
-                        ignoreNotFounds: false,
-                        ensureValidContents: stream => HttpStreamValidation.ValidateJObject(url, stream),
-                        cancellationToken: token))
+                        token))
                     {
                         return ConsumeServiceIndexStream(sourceResponse.Stream, utcNow);
                     }

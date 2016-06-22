@@ -37,7 +37,22 @@ namespace NuGet.ProjectModel
 
         public string Title { get; set; }
 
-        public NuGetVersion Version { get; set; }
+        private NuGetVersion _version;
+        public NuGetVersion Version
+        {
+            get
+            {
+                return _version;
+            }
+            set
+            {
+                _version = value;
+                this.IsDefaultVersion = false;
+            }
+        }
+        public bool IsDefaultVersion { get; set; }
+
+        public bool HasVersionSnapshot { get; set; }
 
         public string Description { get; set; }
 
@@ -61,6 +76,8 @@ namespace NuGet.ProjectModel
 
         public string Language { get; set; }
 
+        public BuildOptions BuildOptions { get; set; }
+
         public string[] Tags { get; set; }
 
         public IList<string> ContentFiles { get; set; }
@@ -72,6 +89,8 @@ namespace NuGet.ProjectModel
         public IDictionary<string, IEnumerable<string>> Scripts { get; private set; }
 
         public IDictionary<string, string> PackInclude { get; private set; }
+
+        public PackOptions PackOptions { get; set; }
 
         public IList<TargetFrameworkInformation> TargetFrameworks { get; private set; }
 

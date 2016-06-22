@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using Xunit;
 using System.Diagnostics;
 
-namespace NuGet.Protocol.Core.v3.Tests
+namespace NuGet.Protocol.Tests
 {
     public class DownloadTimeoutStreamTests
     {
@@ -18,7 +18,10 @@ namespace NuGet.Protocol.Core.v3.Tests
         {
             // Arrange & Act & Assert
             var exception = Assert.Throws<ArgumentNullException>(() =>
-                new DownloadTimeoutStream(null, new MemoryStream(), TimeSpan.Zero));
+                new DownloadTimeoutStream(
+                    downloadName: null,
+                    networkStream: new MemoryStream(),
+                    timeout: TimeSpan.Zero));
             Assert.Equal("downloadName", exception.ParamName);
         }
         
@@ -27,7 +30,11 @@ namespace NuGet.Protocol.Core.v3.Tests
         {
             // Arrange & Act & Assert
             var exception = Assert.Throws<ArgumentNullException>(() =>
-                new DownloadTimeoutStream("downloadName", null, TimeSpan.Zero));
+                new DownloadTimeoutStream(
+                    downloadName: "downloadName",
+                    networkStream: null,
+                    timeout: TimeSpan.Zero));
+
             Assert.Equal("networkStream", exception.ParamName);
         }
         
@@ -49,7 +56,7 @@ namespace NuGet.Protocol.Core.v3.Tests
             await VerifyFailureOnReadAsync(ReadStreamAsync);
         }
 
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
         [Fact]
         public async Task DownloadTimeoutStream_ApmNotSupported()
         {
@@ -90,7 +97,10 @@ namespace NuGet.Protocol.Core.v3.Tests
             {
                 OnRead = (buffer, offset, count) => { throw expected; } 
             };
-            var timeoutStream = new DownloadTimeoutStream("download", slowStream, TimeSpan.FromSeconds(1));
+            var timeoutStream = new DownloadTimeoutStream(
+                "download",
+                slowStream,
+                TimeSpan.FromSeconds(1));
             
             // Act & Assert
             var actual = await Assert.ThrowsAsync<IOException>(() =>
@@ -152,7 +162,7 @@ namespace NuGet.Protocol.Core.v3.Tests
             return Encoding.ASCII.GetString(destination.ToArray());
         }
 
-#if !NETSTANDARDAPP1_5
+#if !IS_CORECLR
         private async Task<string> ReadStreamApm(Stream stream)
         {
             var destination = new MemoryStream();

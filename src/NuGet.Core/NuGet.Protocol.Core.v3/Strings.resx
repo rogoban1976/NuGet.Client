@@ -321,4 +321,28 @@ The "ms" should be localized to the abbreviation for milliseconds.</comment>
     <comment>'{0}' is replaced with the resource that could not be downloaded.
 '{1}' is replaced with the integer (in milliseconds) of the timeout duration.</comment>
   </data>
+  <data name="Http_CredentialsForUnauthorized" xml:space="preserve">
+    <value>The server responded with HTTP '401 Unauthorized' when accessing the source '{0}'. This suggests that the server needs credentials to authenticate your identity. Provide credentials to access this resource.</value>
+    <comment>{0} is the source that needs credentials to be accessed.</comment>
+  </data>
+  <data name="Http_CredentialsForForbidden" xml:space="preserve">
+    <value>The server responded with HTTP '403 Forbidden' when accessing the source '{0}'. This suggests that the server has authenticated your identity but has not permitted you to access the requested resource. Provide credentials that have permissions to view this resource.</value>
+    <comment>{0} is the source that needs credentials to be accessed.</comment>
+  </data>
+  <data name="Http_CredentialsForProxy" xml:space="preserve">
+    <value>The server responded with HTTP '407 Proxy Authentication Required' when accessing the proxy '{0}'. This suggests that the server needs credentials to authenticate your identity to use a proxy. Provide credentials to access this resource.</value>
+    <comment>{0} is the proxy URL that needs credentials to be accessed.</comment>
+  </data>
+  <data name="Protocol_Search_LocalSourceNotFound" xml:space="preserve">
+    <value>The path '{0}' for the selected source could not be resolved.</value>
+  </data>
+  <data name="UnableToParseFolderV3Version" xml:space="preserve">
+    <value>Unable to parse a valid version from a v3 folder: '{0}'.</value>
+  </data>
+  <data name="NupkgPath_InvalidEx" xml:space="preserve">
+    <value>'{0}' is not a valid nupkg file. Error: '{1}'.</value>
+  </data>
+  <data name="Protocol_duplicateUri" xml:space="preserve">
+    <value>'{0}' is a duplicate url which has already been downloaded and will lead to a cyclic dependency. Please correct from server.</value>
+  </data>
 </root>

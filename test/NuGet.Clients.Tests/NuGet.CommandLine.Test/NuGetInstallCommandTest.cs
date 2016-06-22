@@ -175,7 +175,11 @@ namespace NuGet.CommandLine.Test
                 string[] args2 = new string[]
                 {
                     "install",
-                    packagesConfig
+                    packagesConfig,
+                    "-OutputDirectory",
+                    "outputDir",
+                    "-Source",
+                    repositoryPath
                 };
 
                 var r1 = CommandRunner.Run(
@@ -670,6 +674,45 @@ namespace NuGet.CommandLine.Test
 
                     // Act
                     var args = "install testPackage1 -Prerelease -Source " + server.Uri + "nuget";
+                    var r1 = CommandRunner.Run(
+                        nugetexe,
+                        workingPath,
+                        args,
+                        waitForExit: true);
+
+                    // Assert
+                    Assert.Equal(0, r1.Item1);
+
+                    // testPackage1 1.2.0-beta1 is installed
+                    Assert.True(Directory.Exists(Path.Combine(workingPath, "packages", "testPackage1.1.2.0-beta1")));
+                }
+            }
+        }
+
+        // Tests that when prerelease version is specified, and -Prerelease is not specified,
+        [Fact]
+        public void InstallCommand_WithPrereleaseVersionSpecified()
+        {
+            var nugetexe = Util.GetNuGetExePath();
+
+            using (var workingPath = TestFileSystemUtility.CreateRandomTestFolder())
+            using (var packageDirectory = TestFileSystemUtility.CreateRandomTestFolder())
+            {
+                // Add a nuget.config to clear out sources and set the global packages folder
+                Util.CreateConfigForGlobalPackagesFolder(workingPath);
+
+                var packageFileName = Util.CreateTestPackage("testPackage1", "1.1.0", packageDirectory);
+                var package1 = new ZipPackage(packageFileName);
+
+                packageFileName = Util.CreateTestPackage("testPackage1", "1.2.0-beta1", packageDirectory);
+                var package2 = new ZipPackage(packageFileName);
+
+                using (var server = Util.CreateMockServer(new[] { package1, package2 }))
+                {
+                    server.Start();
+
+                    // Act
+                    var args = "install testPackage1 -Version 1.2.0-beta1 -Source " + server.Uri + "nuget";
                     var r1 = CommandRunner.Run(
                         nugetexe,
                         workingPath,

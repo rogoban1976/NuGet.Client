@@ -151,9 +151,25 @@ namespace NuGet.PackageManagement.UI
 
             if (notCompleted.Any())
             {
-                aggregated.SourceSearchStatus
-                    .AddRange(notCompleted
-                        .ToDictionary(kv => kv.Key, kv => GetLoadingStatus(kv.Value.Status)));
+                var statuses = notCompleted.ToDictionary(
+                    kv => kv.Key,
+                    kv => GetLoadingStatus(kv.Value.Status));
+
+                foreach (var item in statuses)
+                {
+                    aggregated.SourceSearchStatus.Add(item);
+                }
+
+                var exceptions = notCompleted
+                    .Where(kv => kv.Value.Exception != null)
+                    .ToDictionary(
+                        kv => kv.Key,
+                        kv => (Exception) kv.Value.Exception);
+
+                foreach (var item in exceptions)
+                {
+                    aggregated.SourceSearchException.Add(item);
+                }
             }
 
             return aggregated;
@@ -196,11 +212,16 @@ namespace NuGet.PackageManagement.UI
             }
             else
             {
+                var items = nonEmptyResults.Select(r => r.Items).ToArray();
+
                 var indexer = new RelevanceSearchResultsIndexer();
                 var aggregator = new SearchResultsAggregator(indexer, new PackageSearchMetadataSplicer());
                 var aggregatedItems = await aggregator.AggregateAsync(
-                    searchText, nonEmptyResults.Select(r => r.Items).ToArray());
+                    searchText, items);
+
                 result = SearchResult.FromItems(aggregatedItems.ToArray());
+                // set correct count of unmerged items
+                result.RawItemsCount = items.Aggregate(0, (r, next) => r + next.Count);
             }
 
             result.SourceSearchStatus = results

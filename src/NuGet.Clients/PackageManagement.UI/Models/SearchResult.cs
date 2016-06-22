@@ -39,7 +39,12 @@ namespace NuGet.PackageManagement.UI
 
         IEnumerator IEnumerable.GetEnumerator() => Items.GetEnumerator();
 
-        public IDictionary<string, LoadingStatus> SourceSearchStatus { get; set; }
+        public IDictionary<string, LoadingStatus> SourceSearchStatus { get; set; } = new Dictionary<string, LoadingStatus>();
+
+        public IDictionary<string, Exception> SourceSearchException { get; set; } = new Dictionary<string, Exception>();
+
+        // total number of unmerged items found
+        public int RawItemsCount { get; set; }
     }
 
     /// <summary>
@@ -47,14 +52,21 @@ namespace NuGet.PackageManagement.UI
     /// </summary>
     internal static class SearchResult
     {
-        public static SearchResult<T> FromItems<T>(params T[] items) => new SearchResult<T> { Items = items };
+        public static SearchResult<T> FromItems<T>(params T[] items) => new SearchResult<T>
+        {
+            Items = items,
+            RawItemsCount = items.Length
+        };
 
-        public static SearchResult<T> FromItems<T>(IReadOnlyList<T> items) => new SearchResult<T> { Items = items };
+        public static SearchResult<T> FromItems<T>(IReadOnlyList<T> items) => new SearchResult<T>
+        {
+            Items = items,
+            RawItemsCount = items.Count
+        };
 
         public static SearchResult<T> Empty<T>() => new SearchResult<T>
         {
-            Items = new T[] { },
-            SourceSearchStatus = new Dictionary<string, LoadingStatus> { }
+            Items = new T[] { }
         };
     }
 }

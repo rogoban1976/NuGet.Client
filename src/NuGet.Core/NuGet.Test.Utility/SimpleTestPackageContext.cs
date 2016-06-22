@@ -17,17 +17,30 @@ namespace NuGet.Test.Utility
             Id = packageId;
         }
 
+        public SimpleTestPackageContext(string packageId, string version)
+        {
+            Id = packageId;
+            Version = version;
+        }
+
+        public SimpleTestPackageContext(PackageIdentity identity)
+            : this (identity.Id, identity.Version.ToString())
+        {
+        }
+
         public SimpleTestPackageContext()
         {
         }
 
         public string Id { get; set; } = "packageA";
         public string Version { get; set; } = "1.0.0";
+        public string MinClientVersion { get; set; }
         public List<SimpleTestPackageContext> Dependencies { get; set; } = new List<SimpleTestPackageContext>();
         public string Include { get; set; } = string.Empty;
         public string Exclude { get; set; } = string.Empty;
         public List<KeyValuePair<string, byte[]>> Files { get; set; } = new List<KeyValuePair<string, byte[]>>();
         public XDocument Nuspec { get; set; }
+        public List<PackageType> PackageTypes { get; set; } = new List<PackageType>();
 
         /// <summary>
         /// runtime.json

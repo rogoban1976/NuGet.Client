@@ -2,14 +2,12 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
 using NuGet.Protocol.Core.Types;
-using System.Threading;
 using NuGet.Configuration;
+using System.Net;
 
-namespace NuGet.Protocol.Core.v3
+namespace NuGet.Protocol
 {
     /// <summary>
     /// Resource wrapper for an HttpClient
@@ -35,25 +33,11 @@ namespace NuGet.Protocol.Core.v3
             _messageHandler = messageHandler;
         }
 
-        public override HttpClientHandler ClientHandler
-        {
-            get { return _clientHandler; }
-        }
+        public override HttpClientHandler ClientHandler => _clientHandler;
 
-        public override HttpMessageHandler MessageHandler
-        {
-            get { return _messageHandler; }
-        }
+        public override HttpMessageHandler MessageHandler => _messageHandler;
 
-        /// <summary>
-        /// Function to be called to prompt user for proxy credentials.
-        /// </summary> 
-        public static ICredentialService CredentialSerivce { get; set; }
-
-        /// <summary>
-        /// Gets or sets a delegate to be invoked to prompt user for authenticated feed credentials.
-        /// </summary>
-        public static Func<Uri, CancellationToken, Task<ICredentials>> PromptForCredentials { get; set; }
+        public static ICredentialService CredentialService { get; set; }
 
         /// <summary>
         /// Gets or sets a delegate that is to be invoked when authenticated feed credentials are successfully

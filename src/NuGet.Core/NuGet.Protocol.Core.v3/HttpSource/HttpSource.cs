@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -16,41 +15,35 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Logging;
 using NuGet.Protocol.Core.Types;
-using NuGet.Protocol.Core.v3;
 
 namespace NuGet.Protocol
 {
     public class HttpSource : IDisposable
     {
-        public static readonly TimeSpan DefaultDownloadTimeout = TimeSpan.FromSeconds(60);
-        private const int MaxAuthRetries = 3;
         private const int BufferSize = 8192;
         private readonly Func<Task<HttpHandlerResource>> _messageHandlerFactory;
         private readonly Uri _baseUri;
         private HttpClient _httpClient;
-        private int _authRetries;
-        private HttpHandlerResource _httpHandler;
-        private CredentialHelper _credentials;
         private string _httpCacheDirectory;
-        private Guid _lastAuthId = Guid.NewGuid();
         private readonly PackageSource _packageSource;
-        private readonly HttpRetryHandler _retryHandler;
+        private readonly IThrottle _throttle;
 
         // Only one thread may re-create the http client at a time.
         private readonly SemaphoreSlim _httpClientLock = new SemaphoreSlim(1, 1);
 
-        // Only one source may prompt at a time
-        private readonly static SemaphoreSlim _credentialPromptLock = new SemaphoreSlim(1, 1);
+        /// <summary>The retry handler to use for all HTTP requests.</summary>
+        /// <summary>This API is intended only for testing purposes and should not be used in product code.</summary>
+        public IHttpRetryHandler RetryHandler { get; set; } = new HttpRetryHandler();
 
-        public TimeSpan DownloadTimeout { get; set; } = DefaultDownloadTimeout;
-
-        public HttpSource(PackageSource source, Func<Task<HttpHandlerResource>> messageHandlerFactory)
+        public HttpSource(
+            PackageSource packageSource,
+            Func<Task<HttpHandlerResource>> messageHandlerFactory,
+            IThrottle throttle)
         {
-            if (source == null)
+            if (packageSource == null)
             {
-                throw new ArgumentNullException(nameof(source));
+                throw new ArgumentNullException(nameof(packageSource));
             }
 
             if (messageHandlerFactory == null)
@@ -58,64 +51,41 @@ namespace NuGet.Protocol
                 throw new ArgumentNullException(nameof(messageHandlerFactory));
             }
 
-            _packageSource = source;
-            _baseUri = source.SourceUri;
-            _messageHandlerFactory = messageHandlerFactory;
-            _retryHandler = new HttpRetryHandler();
-        }
+            if (throttle == null)
+            {
+                throw new ArgumentNullException(nameof(throttle));
+            }
 
-        /// <summary>
-        /// Caching Get request.
-        /// </summary>
-        public Task<HttpSourceResult> GetAsync(
-            string uri,
-            string cacheKey,
-            HttpSourceCacheContext cacheContext,
-            ILogger log,
-            bool ignoreNotFounds,
-            Action<Stream> ensureValidContents,
-            CancellationToken cancellationToken)
-        {
-            return GetAsync(
-                uri,
-                new MediaTypeWithQualityHeaderValue[0],
-                cacheKey,
-                cacheContext,
-                log,
-                ignoreNotFounds,
-                ensureValidContents,
-                cancellationToken);
+            _packageSource = packageSource;
+            _baseUri = packageSource.SourceUri;
+            _messageHandlerFactory = messageHandlerFactory;
+            _throttle = throttle;
         }
 
         /// <summary>
         /// Caching Get request.
         /// </summary>
         public async Task<HttpSourceResult> GetAsync(
-            string uri,
-            MediaTypeWithQualityHeaderValue[] accept,
-            string cacheKey,
-            HttpSourceCacheContext cacheContext,
+            HttpSourceCachedRequest request,
             ILogger log,
-            bool ignoreNotFounds,
-            Action<Stream> ensureValidContents,
-            CancellationToken cancellationToken)
+            CancellationToken token)
         {
-            var result = InitializeHttpCacheResult(cacheKey, cacheContext);
+            var result = InitializeHttpCacheResult(request.CacheKey, request.CacheContext);
 
             return await ConcurrencyUtilities.ExecuteWithFileLockedAsync(
                 result.CacheFile,
-                action: async token =>
+                action: async lockedToken =>
                 {
-                    result.Stream = TryReadCacheFile(uri, result.MaxAge, result.CacheFile);
+                    result.Stream = TryReadCacheFile(request.Uri, result.MaxAge, result.CacheFile);
 
                     if (result.Stream != null)
                     {
-                        log.LogInformation(string.Format(CultureInfo.InvariantCulture, "  " + Strings.Http_RequestLog, "CACHE", uri));
+                        log.LogInformation(string.Format(CultureInfo.InvariantCulture, "  " + Strings.Http_RequestLog, "CACHE", request.Uri));
 
                         // Validate the content fetched from the cache.
                         try
                         {
-                            ensureValidContents?.Invoke(result.Stream);
+                            request.EnsureValidContents?.Invoke(result.Stream);
 
                             result.Stream.Seek(0, SeekOrigin.Begin);
 
@@ -129,7 +99,7 @@ namespace NuGet.Protocol
                             result.Stream.Dispose();
                             result.Stream = null;
 
-                            string message = string.Format(CultureInfo.CurrentCulture, Strings.Log_InvalidCacheEntry, uri)
+                            string message = string.Format(CultureInfo.CurrentCulture, Strings.Log_InvalidCacheEntry, request.Uri)
                                              + Environment.NewLine
                                              + ExceptionUtilities.DisplayMessage(e);
                             log.LogWarning(message);
@@ -138,30 +108,45 @@ namespace NuGet.Protocol
 
                     Func<HttpRequestMessage> requestFactory = () =>
                     {
-                        var request = new HttpRequestMessage(HttpMethod.Get, uri);
-                        foreach (var a in accept)
+                        var requestMessage = HttpRequestMessageFactory.Create(HttpMethod.Get, request.Uri, log);
+
+                        foreach (var acceptHeaderValue in request.AcceptHeaderValues)
                         {
-                            request.Headers.Accept.Add(a);
+                            requestMessage.Headers.Accept.Add(acceptHeaderValue);
                         }
-                        return request;
+
+                        return requestMessage;
                     };
 
-                    // Read the response headers before reading the entire stream to avoid timeouts from large packages.
-                    Func<Task<HttpResponseMessage>> httpRequest = () => SendWithCredentialSupportAsync(
-                            requestFactory,
-                            log,
-                            token);
+                    Func<Task<ThrottledResponse>> throttledResponseFactory = () => GetThrottledResponse(
+                        requestFactory,
+                        request.RequestTimeout,
+                        request.DownloadTimeout,
+                        log,
+                        lockedToken);
 
-                    using (var response = await httpRequest())
+                    using (var throttledResponse = await throttledResponseFactory())
                     {
-                        if (ignoreNotFounds && response.StatusCode == HttpStatusCode.NotFound)
+                        if (request.IgnoreNotFounds && throttledResponse.Response.StatusCode == HttpStatusCode.NotFound)
                         {
                             return new HttpSourceResult(HttpSourceResultStatus.NotFound);
                         }
 
-                        response.EnsureSuccessStatusCode();
+                        if (throttledResponse.Response.StatusCode == HttpStatusCode.NoContent)
+                        {
+                            // Ignore reading and caching the empty stream.
+                            return new HttpSourceResult(HttpSourceResultStatus.NoContent);
+                        }
 
-                        await CreateCacheFile(result, uri, response, cacheContext, ensureValidContents, token);
+                        throttledResponse.Response.EnsureSuccessStatusCode();
+
+                        await CreateCacheFileAsync(
+                            result,
+                            request.Uri,
+                            throttledResponse.Response,
+                            request.CacheContext,
+                            request.EnsureValidContents,
+                            lockedToken);
 
                         return new HttpSourceResult(
                             HttpSourceResultStatus.OpenedFromDisk,
@@ -169,49 +154,57 @@ namespace NuGet.Protocol
                             result.Stream);
                     }
                 },
-                token: cancellationToken);
+                token: token);
         }
 
         public async Task<T> ProcessStreamAsync<T>(
-            Uri uri,
-            bool ignoreNotFounds,
+            HttpSourceRequest request,
             Func<Stream, Task<T>> processAsync,
             ILogger log,
             CancellationToken token)
         {
-            using (var result = await GetAsync(uri, ignoreNotFounds, log, token))
-            {
-                if (result.Status == HttpSourceResultStatus.NotFound)
+            return await ProcessResponseAsync(
+                request,
+                async response =>
                 {
-                    return await processAsync(null);
-                }
+                    if ((request.IgnoreNotFounds && response.StatusCode == HttpStatusCode.NotFound) ||
+                         response.StatusCode == HttpStatusCode.NoContent)
+                    {
+                        return await processAsync(null);
+                    }
 
-                return await processAsync(result.Stream);
-            }
+                    response.EnsureSuccessStatusCode();
+
+                    var networkStream = await response.Content.ReadAsStreamAsync();
+                    return await processAsync(networkStream);
+                },
+                log,
+                token);
         }
 
         public async Task<T> ProcessResponseAsync<T>(
-            Func<HttpRequestMessage> requestFactory,
+            HttpSourceRequest request,
             Func<HttpResponseMessage, Task<T>> processAsync,
             ILogger log,
             CancellationToken token)
         {
-            Func<Task<HttpResponseMessage>> request = () => SendWithCredentialSupportAsync(
-                    requestFactory,
-                    log,
-                    token);
+            Func<Task<ThrottledResponse>> throttledResponseFactory = () => GetThrottledResponse(
+                request.RequestFactory,
+                request.RequestTimeout,
+                request.DownloadTimeout,
+                log,
+                token);
 
-            using (var response = await request())
+            using (var throttledResponse = await throttledResponseFactory())
             {
-                return await processAsync(response);
+                return await processAsync(throttledResponse.Response);
             }
         }
 
-        public async Task<JObject> GetJObjectAsync(Uri uri, bool ignoreNotFounds, ILogger log, CancellationToken token)
+        public async Task<JObject> GetJObjectAsync(HttpSourceRequest request, ILogger log, CancellationToken token)
         {
             return await ProcessStreamAsync(
-                uri: uri,
-                ignoreNotFounds: ignoreNotFounds,
+                request,
                 processAsync: stream =>
                 {
                     if (stream == null)
@@ -229,61 +222,44 @@ namespace NuGet.Protocol
                 token: token);
         }
 
-        private async Task<HttpSourceResult> GetAsync(
-            Uri uri,
-            bool ignoreNotFounds,
-            ILogger log,
-            CancellationToken token)
-        {
-            Func<Task<HttpResponseMessage>> request = () => SendWithCredentialSupportAsync(
-                () => new HttpRequestMessage(HttpMethod.Get, uri),
-                log,
-                token);
-
-            var response = await request();
-
-            try
-            {
-                if (ignoreNotFounds && response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    response.Dispose();
-
-                    return new HttpSourceResult(HttpSourceResultStatus.NotFound);
-                }
-
-                response.EnsureSuccessStatusCode();
-
-                var networkStream = await response.Content.ReadAsStreamAsync();
-                var timeoutStream = new DownloadTimeoutStream(uri.ToString(), networkStream, DownloadTimeout);
-
-                return new HttpSourceResult(
-                    HttpSourceResultStatus.OpenedFromNetwork,
-                    null,
-                    timeoutStream);
-            }
-            catch
-            {
-                try
-                {
-                    response.Dispose();
-                }
-                catch
-                {
-                    // Nothing we can do here.
-                }
-
-                throw;
-            }
-        }
-
-        private async Task<HttpResponseMessage> SendWithCredentialSupportAsync(
+        private async Task<ThrottledResponse> GetThrottledResponse(
             Func<HttpRequestMessage> requestFactory,
+            TimeSpan requestTimeout,
+            TimeSpan downloadTimeout,
             ILogger log,
             CancellationToken cancellationToken)
         {
-            HttpResponseMessage response = null;
-            ICredentials promptCredentials = null;
+            await EnsureHttpClientAsync();
 
+            // Build the retriable request.
+            var request = new HttpRetryHandlerRequest(_httpClient, requestFactory)
+            {
+                RequestTimeout = requestTimeout,
+                DownloadTimeout = downloadTimeout
+            };
+
+            // Acquire the semaphore.
+            await _throttle.WaitAsync();
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await RetryHandler.SendAsync(request, log, cancellationToken);
+            }
+            catch
+            {
+                // If the request fails, release the semaphore. If no exception is thrown by
+                // SendAsync, then the semaphore is released when the HTTP response message is
+                // disposed.
+                _throttle.Release();
+                throw;
+            }
+
+            return new ThrottledResponse(_throttle, response);
+        }
+
+        private async Task EnsureHttpClientAsync()
+        {
             // Create the http client on the first call
             if (_httpClient == null)
             {
@@ -293,7 +269,7 @@ namespace NuGet.Protocol
                     // Double check
                     if (_httpClient == null)
                     {
-                        await UpdateHttpClient();
+                        _httpClient = await CreateHttpClientAsync();
                     }
                 }
                 finally
@@ -301,156 +277,27 @@ namespace NuGet.Protocol
                     _httpClientLock.Release();
                 }
             }
+        }
 
-            // Update the request for STS
-            Func<HttpRequestMessage> requestWithStsFactory = () =>
+        private async Task<HttpClient> CreateHttpClientAsync()
+        {
+            var httpHandler = await _messageHandlerFactory();
+            var httpClient = new HttpClient(httpHandler.MessageHandler)
             {
-                var request = requestFactory();
-                STSAuthHelper.PrepareSTSRequest(_baseUri, CredentialStore.Instance, request);
-                return request;
+                Timeout = Timeout.InfiniteTimeSpan
             };
 
-            // Authorizing may take multiple attempts
-            while (true)
+            // Set user agent
+            UserAgent.SetUserAgent(httpClient);
+
+            // Set accept-language header
+            string acceptLanguage = CultureInfo.CurrentUICulture.ToString();
+            if (!string.IsNullOrEmpty(acceptLanguage))
             {
-                // Clean up any previous responses
-                if (response != null)
-                {
-                    response.Dispose();
-                }
-
-                // store the auth state before sending the request
-                var beforeLockId = _lastAuthId;
-
-                // Read the response headers before reading the entire stream to avoid timeouts from large packages.
-                response = await _retryHandler.SendAsync(
-                    _httpClient,
-                    requestWithStsFactory,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    log,
-                    cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    try
-                    {
-                        // Only one request may prompt and attempt to auth at a time
-                        await _httpClientLock.WaitAsync();
-
-                        // Auth may have happened on another thread, if so just continue
-                        if (beforeLockId != _lastAuthId)
-                        {
-                            continue;
-                        }
-
-                        // Give up after 3 tries.
-                        _authRetries++;
-                        if (_authRetries > MaxAuthRetries)
-                        {
-                            return response;
-                        }
-
-                        // Windows auth
-                        if (STSAuthHelper.TryRetrieveSTSToken(_baseUri, CredentialStore.Instance, response))
-                        {
-                            // Auth token found, create a new message handler and retry.
-                            await UpdateHttpClient();
-                            continue;
-                        }
-
-                        // Prompt the user
-                        promptCredentials = await PromptForCredentials(cancellationToken);
-
-                        if (promptCredentials != null)
-                        {
-                            // The user entered credentials, create a new message handler that includes
-                            // these and retry.
-                            await UpdateHttpClient(promptCredentials);
-                            continue;
-                        }
-                    }
-                    finally
-                    {
-                        _httpClientLock.Release();
-                    }
-                }
-
-                if (promptCredentials != null && HttpHandlerResourceV3.CredentialsSuccessfullyUsed != null)
-                {
-                    HttpHandlerResourceV3.CredentialsSuccessfullyUsed(_baseUri, promptCredentials);
-                }
-
-                return response;
-            }
-        }
-
-        private async Task<ICredentials> PromptForCredentials(CancellationToken cancellationToken)
-        {
-            ICredentials promptCredentials = null;
-
-            if (HttpHandlerResourceV3.PromptForCredentials != null)
-            {
-                try
-                {
-                    // Only one prompt may display at a time.
-                    await _credentialPromptLock.WaitAsync();
-
-                    promptCredentials =
-                        await HttpHandlerResourceV3.PromptForCredentials(_baseUri, cancellationToken);
-                }
-                finally
-                {
-                    _credentialPromptLock.Release();
-                }
+                httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd(acceptLanguage);
             }
 
-            return promptCredentials;
-        }
-
-        private async Task UpdateHttpClient()
-        {
-            // Get package source credentials
-            var credentials = CredentialStore.Instance.GetCredentials(_baseUri);
-
-            if (credentials == null
-                && !String.IsNullOrEmpty(_packageSource.UserName)
-                && !String.IsNullOrEmpty(_packageSource.Password))
-            {
-                credentials = new NetworkCredential(_packageSource.UserName, _packageSource.Password);
-            }
-
-            if (credentials != null)
-            {
-                CredentialStore.Instance.Add(_baseUri, credentials);
-            }
-
-            await UpdateHttpClient(credentials);
-        }
-
-        private async Task UpdateHttpClient(ICredentials credentials)
-        {
-            if (_httpHandler == null)
-            {
-                _httpHandler = await _messageHandlerFactory();
-                _httpClient = new HttpClient(_httpHandler.MessageHandler);
-                _httpClient.Timeout = Timeout.InfiniteTimeSpan;
-
-                // Create a new wrapper for ICredentials that can be modified
-                _credentials = new CredentialHelper();
-                _httpHandler.ClientHandler.Credentials = _credentials;
-
-                // Always take the credentials from the helper.
-                _httpHandler.ClientHandler.UseDefaultCredentials = false;
-
-                // Set user agent
-                UserAgent.SetUserAgent(_httpClient);
-            }
-
-            // Modify the credentials on the current handler
-            _credentials.Credentials = credentials;
-
-            // Mark that auth has been updated
-            _lastAuthId = Guid.NewGuid();
+            return httpClient;
         }
 
         private HttpCacheResult InitializeHttpCacheResult(string cacheKey, HttpSourceCacheContext context)
@@ -482,7 +329,7 @@ namespace NuGet.Protocol
             return new HttpCacheResult(maxAge, newFile, cacheFile);
         }
 
-        private async Task CreateCacheFile(
+        private async Task CreateCacheFileAsync(
             HttpCacheResult result,
             string uri,
             HttpResponseMessage response,
@@ -502,9 +349,8 @@ namespace NuGet.Protocol
                 useAsync: true))
             {
                 using (var networkStream = await response.Content.ReadAsStreamAsync())
-                using (var timeoutStream = new DownloadTimeoutStream(uri, networkStream, DownloadTimeout))
                 {
-                    await timeoutStream.CopyToAsync(fileStream, 8192, cancellationToken);
+                    await networkStream.CopyToAsync(fileStream, 8192, cancellationToken);
                 }
 
                 // Validate the content before putting it into the cache.
@@ -528,20 +374,20 @@ namespace NuGet.Protocol
             if (!File.Exists(result.CacheFile))
             {
                 File.Move(
-                        result.NewCacheFile,
-                        result.CacheFile);
+                    result.NewCacheFile,
+                    result.CacheFile);
             }
 
             // Even the file deletion operation above succeeds but the file is not actually deleted,
             // we can still safely read it because it means that some other process just updated it
             // and we don't need to update it with the same content again.
             result.Stream = new FileStream(
-                    result.CacheFile,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read | FileShare.Delete,
-                    BufferSize,
-                    useAsync: true);
+                result.CacheFile,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete,
+                BufferSize,
+                useAsync: true);
         }
 
         public string HttpCacheDirectory
@@ -567,7 +413,7 @@ namespace NuGet.Protocol
                 if (!Directory.Exists(cacheFolder))
                 {
                     Directory.CreateDirectory(cacheFolder);
-                }   
+                }
             }
 
             if (File.Exists(cacheFile))
@@ -639,9 +485,24 @@ namespace NuGet.Protocol
 
         public static HttpSource Create(SourceRepository source)
         {
+            return Create(source, NullThrottle.Instance);
+        }
+
+        public static HttpSource Create(SourceRepository source, IThrottle throttle)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            if (throttle == null)
+            {
+                throw new ArgumentNullException(nameof(throttle));
+            }
+
             Func<Task<HttpHandlerResource>> factory = () => source.GetResourceAsync<HttpHandlerResource>();
 
-            return new HttpSource(source.PackageSource, factory);
+            return new HttpSource(source.PackageSource, factory, throttle);
         }
 
         public void Dispose()
@@ -652,6 +513,41 @@ namespace NuGet.Protocol
             }
 
             _httpClientLock.Dispose();
+        }
+
+        private class ThrottledResponse : IDisposable
+        {
+            private IThrottle _throttle;
+
+            public ThrottledResponse(IThrottle throttle, HttpResponseMessage response)
+            {
+                if (throttle == null)
+                {
+                    throw new ArgumentNullException(nameof(throttle));
+                }
+
+                if (response == null)
+                {
+                    throw new ArgumentNullException(nameof(response));
+                }
+
+                _throttle = throttle;
+                Response = response;
+            }
+
+            public HttpResponseMessage Response { get; }
+
+            public void Dispose()
+            {
+                try
+                {
+                    Response.Dispose();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _throttle, null)?.Release();
+                }
+            }
         }
 
         private class HttpCacheResult
